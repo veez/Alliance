@@ -1,0 +1,41 @@
+# Демо-стенд на VPS: портал (API + фронтенд в одном контейнере) + PostgreSQL.
+# Запуск: cp .env.demo.example .env.demo && (заполнить секреты) && docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build
+# Сайт — http://<IP сервера>/ . Для HTTPS нужен домен (см. README).
+services:
+  db:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alliance
+      POSTGRES_USER: alliance
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD}
+    volumes:
+      - demo-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U alliance -d alliance']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '80:3000'
+    environment:
+      DATABASE_URL: postgresql://alliance:${DB_PASSWORD}@db:5432/alliance
+      APP_URL: ${APP_URL:?задайте APP_URL, например http://1.2.3.4}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?задайте JWT_ACCESS_SECRET}
+      TOTP_ENC_KEY: ${TOTP_ENC_KEY:?задайте TOTP_ENC_KEY}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false} # true только при HTTPS
+      DEMO_DATA: 'true'
+      DISABLE_2FA: 'true'
+    volumes:
+      - demo-files:/app/var
+
+volumes:
+  demo-db:
+  demo-files:
