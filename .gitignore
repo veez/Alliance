@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+backend/var/
+backups/
+coverage/
+.DS_Store

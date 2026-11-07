@@ -1,0 +1,904 @@
+// Схема БД портала Альянса «Ценность каждого».
+// Описание таблиц и связей: docs/ARCHITECTURE.md, раздел 5.
+// Все даты хранятся в UTC (timestamptz), отображаются в Europe/Moscow.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Идентификация и доступ ─────────────────────────
+
+enum SystemRole {
+  ADMIN
+  SECRETARY
+  USER
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  BLOCKED
+}
+
+model User {
+  id             String     @id @default(uuid()) @db.Uuid
+  email          String     @unique
+  passwordHash   String?    @map("password_hash")
+  fullName       String     @map("full_name")
+  phone          String?
+  position       String?
+  organizationId String?    @map("organization_id") @db.Uuid
+  systemRole     SystemRole @default(USER) @map("system_role")
+  canViewAll     Boolean    @default(false) @map("can_view_all")
+  status         UserStatus @default(INVITED)
+  totpSecretEnc  String?    @map("totp_secret_enc")
+  totpEnabledAt  DateTime?  @map("totp_enabled_at") @db.Timestamptz
+  failedLogins   Int        @default(0) @map("failed_logins")
+  lockedUntil    DateTime?  @map("locked_until") @db.Timestamptz
+  contactPrivacy Json       @default("{}") @map("contact_privacy")
+  lastLoginAt    DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization        Organization?               @relation(fields: [organizationId], references: [id])
+  sessions            RefreshSession[]
+  passwordResets      PasswordReset[]
+  invitationsCreated  Invitation[]                @relation("InvitationCreatedBy")
+  employeeProfile     Employee?
+  statusChanges       OrganizationStatusHistory[]
+  uploadedFiles       File[]
+  votesCreated        Vote[]                      @relation("VoteCreatedBy")
+  voteParticipations  VoteParticipation[]
+  duesPayments        DuesPayment[]
+  eventsCreated       Event[]                     @relation("EventCreatedBy")
+  attendance          EventAttendance[]           @relation("AttendanceUser")
+  attendanceMarked    EventAttendance[]           @relation("AttendanceMarkedBy")
+  protocolsAuthored   Protocol[]
+  wgMemberships       WorkingGroupMember[]
+  wgPlanResponsible   WgPlanItem[]
+  wgTasksAssigned     WgTask[]                    @relation("TaskAssignee")
+  wgTasksCreated      WgTask[]                    @relation("TaskCreatedBy")
+  comments            Comment[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
+  auditEntries        AuditLog[]
+  emailTemplatesEdits EmailTemplate[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Invitation {
+  id             String     @id @default(uuid()) @db.Uuid
+  email          String
+  tokenHash      String     @unique @map("token_hash")
+  userId         String     @map("user_id") @db.Uuid
+  systemRole     SystemRole @default(USER) @map("system_role")
+  organizationId String?    @map("organization_id") @db.Uuid
+  createdById    String     @map("created_by") @db.Uuid
+  expiresAt      DateTime   @map("expires_at") @db.Timestamptz
+  usedAt         DateTime?  @map("used_at") @db.Timestamptz
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  createdBy    User          @relation("InvitationCreatedBy", fields: [createdById], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([email])
+  @@map("invitations")
+}
+
+model RefreshSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  familyId  String    @map("family_id") @db.Uuid
+  userAgent String?   @map("user_agent")
+  ip        String?
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_sessions")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+// ───────────────────────── Организации и регионы ─────────────────────────
+
+model Region {
+  code           String  @id
+  name           String
+  federalDistrict String @map("federal_district")
+  svgPathId      String? @map("svg_path_id")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  organizations Organization[]
+
+  @@map("regions")
+}
+
+enum OrganizationKind {
+  ORGANIZATION
+  INDIVIDUAL
+}
+
+enum OrganizationStatus {
+  CANDIDATE
+  MEMBER
+  PARTNER
+  SUSPENDED
+  EXITED
+}
+
+model Organization {
+  id             String             @id @default(uuid()) @db.Uuid
+  kind           OrganizationKind   @default(ORGANIZATION)
+  status         OrganizationStatus @default(CANDIDATE)
+  name           String
+  shortName      String?            @map("short_name")
+  inn            String?
+  ogrn           String?
+  kpp            String?
+  legalAddress   String?            @map("legal_address")
+  postalAddress  String?            @map("postal_address")
+  regionCode     String             @map("region_code")
+  city           String?
+  lat            Float?
+  lng            Float?
+  activityAreas  String[]           @default([]) @map("activity_areas")
+  description    String?
+  website        String?
+  email          String?
+  phone          String?
+  headName       String?            @map("head_name")
+  headPosition   String?            @map("head_position")
+  logoFileId     String?            @map("logo_file_id") @db.Uuid
+  joinedAt       DateTime?          @map("joined_at") @db.Timestamptz
+  showOnMap      Boolean            @default(true) @map("show_on_map")
+  contactPrivacy Json               @default("{}") @map("contact_privacy")
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  region             Region                      @relation(fields: [regionCode], references: [code])
+  logo               File?                       @relation("OrganizationLogo", fields: [logoFileId], references: [id])
+  users              User[]
+  invitations        Invitation[]
+  employees          Employee[]
+  statusHistory      OrganizationStatusHistory[]
+  application        CandidateApplication?
+  dues               Dues[]
+  donationAgreements DonationAgreement[]
+  voteSubjects       Vote[]                      @relation("VoteSubject")
+  eligibleVotes      VoteEligibleVoter[]
+  voteParticipations VoteParticipation[]
+  voteAnswers        VoteAnswer[]
+  voteReminders      VoteReminderLog[]
+  attendance         EventAttendance[]
+
+  @@index([regionCode])
+  @@index([status])
+  @@map("organizations")
+}
+
+model OrganizationStatusHistory {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  fromStatus     OrganizationStatus? @map("from_status")
+  toStatus       OrganizationStatus  @map("to_status")
+  reason         String?
+  voteId         String?             @map("vote_id") @db.Uuid
+  changedById    String?             @map("changed_by") @db.Uuid
+  changedAt      DateTime            @default(now()) @map("changed_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vote         Vote?        @relation(fields: [voteId], references: [id])
+  changedBy    User?        @relation(fields: [changedById], references: [id])
+
+  @@index([organizationId])
+  @@map("organization_status_history")
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model CandidateApplication {
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String            @unique @map("organization_id") @db.Uuid
+  questionnaire   Json              @default("{}")
+  status          ApplicationStatus @default(DRAFT)
+  submittedAt     DateTime?         @map("submitted_at") @db.Timestamptz
+  decidedAt       DateTime?         @map("decided_at") @db.Timestamptz
+  admissionVoteId String?           @map("admission_vote_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  admissionVote Vote?        @relation(fields: [admissionVoteId], references: [id])
+
+  @@map("candidate_applications")
+}
+
+model Employee {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String?  @unique @map("user_id") @db.Uuid
+  fullName       String   @map("full_name")
+  position       String?
+  email          String?
+  phone          String?
+  contactPrivacy Json     @default("{}") @map("contact_privacy")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User?                      @relation(fields: [userId], references: [id])
+  responsibilities EmployeeResponsibility[]
+
+  @@index([organizationId])
+  @@map("employees")
+}
+
+model ResponsibilityArea {
+  id        String  @id @default(uuid()) @db.Uuid
+  code      String  @unique
+  name      String
+  sortOrder Int     @default(0) @map("sort_order")
+
+  employees EmployeeResponsibility[]
+
+  @@map("responsibility_areas")
+}
+
+model EmployeeResponsibility {
+  id             String  @id @default(uuid()) @db.Uuid
+  employeeId     String  @map("employee_id") @db.Uuid
+  areaId         String  @map("area_id") @db.Uuid
+  workingGroupId String? @map("working_group_id") @db.Uuid
+
+  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  area         ResponsibilityArea @relation(fields: [areaId], references: [id])
+  workingGroup WorkingGroup?      @relation(fields: [workingGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, areaId, workingGroupId])
+  @@map("employee_responsibilities")
+}
+
+// ───────────────────────── Файлы ─────────────────────────
+
+enum FileEntityType {
+  VOTE
+  DUES
+  AGREEMENT
+  PAYMENT
+  EVENT
+  PROTOCOL
+  WORKING_GROUP
+  TASK
+  ORGANIZATION
+}
+
+model File {
+  id           String   @id @default(uuid()) @db.Uuid
+  storageKey   String   @unique @map("storage_key")
+  originalName String   @map("original_name")
+  mime         String
+  size         Int
+  sha256       String
+  uploadedById String?  @map("uploaded_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  uploadedBy        User?          @relation(fields: [uploadedById], references: [id])
+  links             FileLink[]
+  organizationLogos Organization[] @relation("OrganizationLogo")
+  voteProtocols     Vote[]         @relation("VoteProtocolFile")
+
+  @@map("files")
+}
+
+model FileLink {
+  fileId            String         @map("file_id") @db.Uuid
+  entityType        FileEntityType @map("entity_type")
+  entityId          String         @map("entity_id") @db.Uuid
+  docType           String?        @map("doc_type")
+  visibleToPartners Boolean        @default(false) @map("visible_to_partners")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, entityType, entityId])
+  @@index([entityType, entityId])
+  @@map("file_links")
+}
+
+// ───────────────────────── Голосования (все открытые, 1 организация = 1 голос) ─────────────────────────
+
+enum VoteScenario {
+  DOCUMENT_APPROVAL
+  EVENT_PARTICIPATION
+  ADMISSION
+  ELECTION
+  OTHER
+}
+
+enum VoteStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum VoteEligibility {
+  ALL_MEMBERS
+  LIST
+  PAID_DUES
+}
+
+enum QuestionFormat {
+  YES_NO_ABSTAIN
+  SINGLE
+  MULTIPLE
+  RANKING
+}
+
+model Vote {
+  id                    String          @id @default(uuid()) @db.Uuid
+  number                Int             @unique @default(autoincrement())
+  title                 String
+  description           String?
+  scenario              VoteScenario    @default(OTHER)
+  status                VoteStatus      @default(DRAFT)
+  startsAt              DateTime?       @map("starts_at") @db.Timestamptz
+  endsAt                DateTime        @map("ends_at") @db.Timestamptz
+  closedAt              DateTime?       @map("closed_at") @db.Timestamptz
+  quorumPercent         Int             @default(50) @map("quorum_percent")
+  eligibility           VoteEligibility @default(ALL_MEMBERS)
+  subjectOrganizationId String?         @map("subject_organization_id") @db.Uuid
+  reminders             Json            @default("[]")
+  result                Json?
+  protocolFileId        String?         @map("protocol_file_id") @db.Uuid
+  createdById           String          @map("created_by") @db.Uuid
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  subjectOrganization Organization?               @relation("VoteSubject", fields: [subjectOrganizationId], references: [id])
+  protocolFile        File?                       @relation("VoteProtocolFile", fields: [protocolFileId], references: [id])
+  createdBy           User                        @relation("VoteCreatedBy", fields: [createdById], references: [id])
+  questions           VoteQuestion[]
+  eligibleVoters      VoteEligibleVoter[]
+  participations      VoteParticipation[]
+  answers             VoteAnswer[]
+  reminderLog         VoteReminderLog[]
+  statusChanges       OrganizationStatusHistory[]
+  applications        CandidateApplication[]
+  protocolItems       ProtocolItem[]
+
+  @@index([status, endsAt])
+  @@map("votes")
+}
+
+model VoteQuestion {
+  id         String         @id @default(uuid()) @db.Uuid
+  voteId     String         @map("vote_id") @db.Uuid
+  position   Int
+  text       String
+  format     QuestionFormat
+  minChoices Int            @default(1) @map("min_choices")
+  maxChoices Int            @default(1) @map("max_choices")
+
+  vote    Vote         @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  options VoteOption[]
+  answers VoteAnswer[]
+
+  @@index([voteId])
+  @@map("vote_questions")
+}
+
+model VoteOption {
+  id         String @id @default(uuid()) @db.Uuid
+  questionId String @map("question_id") @db.Uuid
+  position   Int
+  text       String
+
+  question VoteQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  VoteAnswer[]
+
+  @@index([questionId])
+  @@map("vote_options")
+}
+
+model VoteEligibleVoter {
+  voteId         String @map("vote_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  vote         Vote         @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([voteId, organizationId])
+  @@map("vote_eligible_voters")
+}
+
+model VoteParticipation {
+  voteId         String   @map("vote_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  votedByUserId  String   @map("voted_by_user_id") @db.Uuid
+  votedAt        DateTime @default(now()) @map("voted_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  vote         Vote         @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  votedBy      User         @relation(fields: [votedByUserId], references: [id])
+
+  @@id([voteId, organizationId])
+  @@map("vote_participations")
+}
+
+model VoteAnswer {
+  id             String @id @default(uuid()) @db.Uuid
+  voteId         String @map("vote_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  questionId     String @map("question_id") @db.Uuid
+  optionId       String @map("option_id") @db.Uuid
+  rank           Int?
+
+  vote         Vote         @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  question     VoteQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  option       VoteOption   @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([voteId, organizationId, questionId, optionId])
+  @@index([questionId])
+  @@map("vote_answers")
+}
+
+model VoteReminderLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  voteId         String   @map("vote_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  kind           String
+  sentAt         DateTime @default(now()) @map("sent_at") @db.Timestamptz
+
+  vote         Vote         @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([voteId, organizationId, kind])
+  @@map("vote_reminder_log")
+}
+
+// ───────────────────────── Взносы и договоры ─────────────────────────
+
+enum DuesStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+enum AgreementStatus {
+  DRAFT
+  SIGNED
+  TERMINATED
+}
+
+model DuesSettings {
+  year               Int      @id
+  amount             Decimal  @db.Decimal(12, 2)
+  dueDate            DateTime @map("due_date") @db.Date
+  graceDays          Int      @default(0) @map("grace_days")
+  votingRequiresPaid Boolean  @default(false) @map("voting_requires_paid")
+
+  dues Dues[]
+
+  @@map("dues_settings")
+}
+
+model Dues {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  year           Int
+  amountDue      Decimal    @map("amount_due") @db.Decimal(12, 2)
+  dueDate        DateTime   @map("due_date") @db.Date
+  status         DuesStatus @default(UNPAID)
+  note           String?
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  settings     DuesSettings      @relation(fields: [year], references: [year])
+  payments     DuesPayment[]
+  reminders    DuesReminderLog[]
+
+  @@unique([organizationId, year])
+  @@index([year, status])
+  @@map("dues")
+}
+
+model DuesPayment {
+  id             String   @id @default(uuid()) @db.Uuid
+  duesId         String   @map("dues_id") @db.Uuid
+  amount         Decimal  @db.Decimal(12, 2)
+  paidAt         DateTime @map("paid_at") @db.Date
+  documentNumber String?  @map("document_number")
+  recordedById   String?  @map("recorded_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  dues       Dues  @relation(fields: [duesId], references: [id], onDelete: Cascade)
+  recordedBy User? @relation(fields: [recordedById], references: [id])
+
+  @@map("dues_payments")
+}
+
+/// Отправленные напоминания о взносе (защита от повторной рассылки)
+model DuesReminderLog {
+  id     String   @id @default(uuid()) @db.Uuid
+  duesId String   @map("dues_id") @db.Uuid
+  kind   String
+  sentAt DateTime @default(now()) @map("sent_at") @db.Timestamptz
+
+  dues Dues @relation(fields: [duesId], references: [id], onDelete: Cascade)
+
+  @@unique([duesId, kind])
+  @@map("dues_reminder_log")
+}
+
+model DonationAgreement {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  number         String
+  signedAt       DateTime?       @map("signed_at") @db.Date
+  year           Int
+  amount         Decimal?        @db.Decimal(12, 2)
+  status         AgreementStatus @default(DRAFT)
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, year])
+  @@map("donation_agreements")
+}
+
+// ───────────────────────── Мероприятия и протоколы ─────────────────────────
+
+enum EventType {
+  GENERAL_MEETING
+  CONFERENCE
+  WORKING_GROUP_MEETING
+  OTHER
+}
+
+enum EventFormat {
+  OFFLINE
+  ONLINE
+  HYBRID
+}
+
+enum EventStatus {
+  PLANNED
+  HELD
+  CANCELLED
+}
+
+enum RegistrationStatus {
+  INVITED
+  CONFIRMED_OFFLINE
+  CONFIRMED_ONLINE
+  DECLINED
+}
+
+enum PresenceStatus {
+  UNKNOWN
+  PRESENT_OFFLINE
+  PRESENT_ONLINE
+  ABSENT
+}
+
+model Event {
+  id                   String      @id @default(uuid()) @db.Uuid
+  title                String
+  description          String?
+  type                 EventType   @default(GENERAL_MEETING)
+  format               EventFormat @default(ONLINE)
+  location             String?
+  onlineUrl            String?     @map("online_url")
+  startsAt             DateTime    @map("starts_at") @db.Timestamptz
+  endsAt               DateTime?   @map("ends_at") @db.Timestamptz
+  registrationDeadline DateTime?   @map("registration_deadline") @db.Timestamptz
+  workingGroupId       String?     @map("working_group_id") @db.Uuid
+  visibleToPartners    Boolean     @default(false) @map("visible_to_partners")
+  status               EventStatus @default(PLANNED)
+  /// Напоминание участникам за сутки уже отправлено
+  reminderSentAt       DateTime?   @map("reminder_sent_at") @db.Timestamptz
+  createdById          String      @map("created_by") @db.Uuid
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  workingGroup WorkingGroup?     @relation(fields: [workingGroupId], references: [id])
+  createdBy    User              @relation("EventCreatedBy", fields: [createdById], references: [id])
+  attendance   EventAttendance[]
+  protocols    Protocol[]
+
+  @@index([startsAt])
+  @@map("events")
+}
+
+model EventAttendance {
+  eventId        String             @map("event_id") @db.Uuid
+  userId         String             @map("user_id") @db.Uuid
+  organizationId String?            @map("organization_id") @db.Uuid
+  registration   RegistrationStatus @default(INVITED)
+  presence       PresenceStatus     @default(UNKNOWN)
+  markedById     String?            @map("marked_by") @db.Uuid
+  markedAt       DateTime?          @map("marked_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user         User          @relation("AttendanceUser", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  markedBy     User?         @relation("AttendanceMarkedBy", fields: [markedById], references: [id])
+
+  @@id([eventId, userId])
+  @@index([organizationId])
+  @@map("event_attendance")
+}
+
+enum ProtocolStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Protocol {
+  id                String         @id @default(uuid()) @db.Uuid
+  number            String?
+  title             String
+  heldAt            DateTime       @map("held_at") @db.Timestamptz
+  eventId           String?        @map("event_id") @db.Uuid
+  workingGroupId    String?        @map("working_group_id") @db.Uuid
+  status            ProtocolStatus @default(DRAFT)
+  authorId          String         @map("author_id") @db.Uuid
+  publishedAt       DateTime?      @map("published_at") @db.Timestamptz
+  visibleToPartners Boolean        @default(false) @map("visible_to_partners")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  event        Event?         @relation(fields: [eventId], references: [id])
+  workingGroup WorkingGroup?  @relation(fields: [workingGroupId], references: [id])
+  author       User           @relation(fields: [authorId], references: [id])
+  items        ProtocolItem[]
+
+  @@index([heldAt])
+  @@map("protocols")
+}
+
+model ProtocolItem {
+  id          String  @id @default(uuid()) @db.Uuid
+  protocolId  String  @map("protocol_id") @db.Uuid
+  position    Int
+  agendaText  String  @map("agenda_text")
+  discussion  String?
+  decision    String?
+  voteId      String? @map("vote_id") @db.Uuid
+
+  protocol Protocol @relation(fields: [protocolId], references: [id], onDelete: Cascade)
+  vote     Vote?    @relation(fields: [voteId], references: [id])
+
+  @@index([protocolId])
+  @@map("protocol_items")
+}
+
+// ───────────────────────── Рабочие группы ─────────────────────────
+
+enum WorkingGroupStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum WgRole {
+  LEAD
+  MEMBER
+}
+
+enum PlanStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model WorkingGroup {
+  id          String             @id @default(uuid()) @db.Uuid
+  name        String
+  goals       String?
+  description String?
+  status      WorkingGroupStatus @default(ACTIVE)
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  members          WorkingGroupMember[]
+  planItems        WgPlanItem[]
+  tasks            WgTask[]
+  events           Event[]
+  protocols        Protocol[]
+  responsibilities EmployeeResponsibility[]
+
+  @@map("working_groups")
+}
+
+model WorkingGroupMember {
+  workingGroupId String   @map("working_group_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  role           WgRole   @default(MEMBER)
+  joinedAt       DateTime @default(now()) @map("joined_at") @db.Timestamptz
+
+  workingGroup WorkingGroup @relation(fields: [workingGroupId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workingGroupId, userId])
+  @@map("working_group_members")
+}
+
+model WgPlanItem {
+  id                String     @id @default(uuid()) @db.Uuid
+  workingGroupId    String     @map("working_group_id") @db.Uuid
+  title             String
+  description       String?
+  startDate         DateTime?  @map("start_date") @db.Date
+  dueDate           DateTime?  @map("due_date") @db.Date
+  status            PlanStatus @default(PLANNED)
+  responsibleUserId String?    @map("responsible_user_id") @db.Uuid
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  workingGroup WorkingGroup @relation(fields: [workingGroupId], references: [id], onDelete: Cascade)
+  responsible  User?        @relation(fields: [responsibleUserId], references: [id])
+  tasks        WgTask[]
+
+  @@index([workingGroupId])
+  @@map("wg_plan_items")
+}
+
+model WgTask {
+  id             String     @id @default(uuid()) @db.Uuid
+  workingGroupId String     @map("working_group_id") @db.Uuid
+  planItemId     String?    @map("plan_item_id") @db.Uuid
+  title          String
+  description    String?
+  assigneeId     String?    @map("assignee_user_id") @db.Uuid
+  dueDate        DateTime?  @map("due_date") @db.Date
+  status         TaskStatus @default(TODO)
+  createdById    String     @map("created_by") @db.Uuid
+  doneAt         DateTime?  @map("done_at") @db.Timestamptz
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  workingGroup WorkingGroup @relation(fields: [workingGroupId], references: [id], onDelete: Cascade)
+  planItem     WgPlanItem?  @relation(fields: [planItemId], references: [id])
+  assignee     User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy    User         @relation("TaskCreatedBy", fields: [createdById], references: [id])
+
+  @@index([workingGroupId])
+  @@map("wg_tasks")
+}
+
+enum CommentEntityType {
+  TASK
+  PLAN_ITEM
+  PROTOCOL
+}
+
+model Comment {
+  id         String            @id @default(uuid()) @db.Uuid
+  entityType CommentEntityType @map("entity_type")
+  entityId   String            @map("entity_id") @db.Uuid
+  authorId   String            @map("author_id") @db.Uuid
+  body       String
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  editedAt   DateTime?         @map("edited_at") @db.Timestamptz
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("comments")
+}
+
+// ───────────────────────── Уведомления, настройки, аудит ─────────────────────────
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime? @map("read_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  userId String  @map("user_id") @db.Uuid
+  type   String
+  inApp  Boolean @default(true) @map("in_app")
+  email  Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
+  @@map("notification_preferences")
+}
+
+model EmailTemplate {
+  code        String   @id
+  name        String
+  subject     String
+  bodyHtml    String   @map("body_html")
+  updatedById String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+
+  @@map("email_templates")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([actorUserId])
+  @@map("audit_log")
+}
