@@ -3,6 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { env } from './config/env';
@@ -12,7 +14,20 @@ export function configureApp(app: INestApplication) {
   const express = app as NestExpressApplication;
   express.set('trust proxy', 1); // за nginx — реальный IP клиента для rate-limit и аудита
   app.setGlobalPrefix('api');
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"], // inline — для Swagger UI
+          connectSrc: ["'self'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+    }),
+  );
   app.use(cookieParser());
   app.enableCors({ origin: env.appUrl, credentials: true });
   app.useGlobalPipes(
@@ -20,9 +35,24 @@ export function configureApp(app: INestApplication) {
   );
 }
 
+/** Демо-стенд в одном контейнере: статика фронтенда + возврат index.html для маршрутов SPA. */
+function serveFrontend(app: NestExpressApplication) {
+  if (!env.staticDir) return;
+  const dir = resolve(env.staticDir);
+  if (!existsSync(join(dir, 'index.html'))) {
+    Logger.warn(`STATIC_DIR=${dir}: index.html не найден`, 'Bootstrap');
+    return;
+  }
+  app.useStaticAssets(dir, { index: false, maxAge: '1h' });
+  app.use((req: { method: string; path: string }, res: { sendFile: (p: string) => void }, next: () => void) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    res.sendFile(join(dir, 'index.html'));
+  });
+}
+
 async function bootstrap() {
   process.env.TZ = 'UTC';
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   configureApp(app);
 
   const swagger = new DocumentBuilder()
@@ -32,6 +62,7 @@ async function bootstrap() {
     .build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swagger));
 
+  serveFrontend(app as NestExpressApplication);
   app.enableShutdownHooks();
   await app.listen(env.port);
   Logger.log(`API: http://localhost:${env.port}/api  ·  Swagger: http://localhost:${env.port}/api/docs`, 'Bootstrap');

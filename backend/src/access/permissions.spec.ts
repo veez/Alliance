@@ -70,3 +70,13 @@ describe('RBAC: computePermissions', () => {
     expect(computePermissions(subject({ organizationStatus: OrganizationStatus.SUSPENDED })).has(P.VOTE_CAST)).toBe(false);
   });
 });
+
+describe('демо-режим без 2FA', () => {
+  afterEach(() => delete process.env.DISABLE_2FA);
+  it('DISABLE_2FA=true снимает обязательность 2FA для админа и секретаря', () => {
+    expect(requiresMfa('ADMIN')).toBe(true);
+    process.env.DISABLE_2FA = 'true';
+    expect(requiresMfa('ADMIN')).toBe(false);
+    expect(requiresMfa('SECRETARY')).toBe(false);
+  });
+});

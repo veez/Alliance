@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env
+backend/var
+backups
+coverage
+.claude

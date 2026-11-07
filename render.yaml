@@ -1,0 +1,24 @@
+# Демо-стенд на Render (бесплатный план). База — Neon (бесплатный PostgreSQL), строку подключения
+# вставьте в DATABASE_URL при создании Blueprint. Подробности — README, раздел «Демо-стенд».
+services:
+  - type: web
+    name: alliance-portal-demo
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false # postgresql://…neon.tech/…?sslmode=require (прямое подключение, не pooler)
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: TOTP_ENC_KEY
+        generateValue: true # 256 бит в base64 = 32 байта
+      - key: COOKIE_SECURE
+        value: 'true'
+      - key: DEMO_DATA
+        value: 'true' # демо-организации, голосования, взносы, мероприятия
+      - key: DISABLE_2FA
+        value: 'true' # демо: вход по паролю без второго фактора

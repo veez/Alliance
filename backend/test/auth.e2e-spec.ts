@@ -160,4 +160,19 @@ describe('Аутентификация и 2FA (e2e)', () => {
     const u = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@alliance.local' } });
     await http().patch(`/api/admin/users/${u.id}`).set(auth(admin)).send({ systemRole: 'USER' }).expect(400);
   });
+
+  it('демо-стенд (DISABLE_2FA=true): вход по паролю без второго фактора, права выдаются', async () => {
+    process.env.DISABLE_2FA = 'true';
+    try {
+      const res = await http().post('/api/auth/login').send({ email: 'secretary@alliance.local', password: DEMO_PASSWORD }).expect(200);
+      expect(res.body.twoFactorRequired).toBe(false);
+      const me = await http().get('/api/auth/me').set(auth(res.body.accessToken)).expect(200);
+      expect(me.body).toMatchObject({ mfaRequired: false, mfaSetupPending: false });
+      expect(me.body.permissions).toContain('votes.create');
+    } finally {
+      delete process.env.DISABLE_2FA;
+    }
+    const normal = await http().post('/api/auth/login').send({ email: 'secretary@alliance.local', password: DEMO_PASSWORD }).expect(200);
+    expect(normal.body.twoFactorRequired).toBe(true);
+  });
 });

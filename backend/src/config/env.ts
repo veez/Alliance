@@ -19,7 +19,8 @@ export const env = {
   isProd: process.env.NODE_ENV === 'production',
   isTest: process.env.NODE_ENV === 'test',
   port: int('PORT', 3000),
-  appUrl: required('APP_URL', 'http://localhost:5173'),
+  // На Render адрес сервиса приходит в RENDER_EXTERNAL_URL
+  appUrl: required('APP_URL', process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173'),
   databaseUrl: required('DATABASE_URL'),
 
   jwtAccessSecret: required('JWT_ACCESS_SECRET'),
@@ -38,6 +39,8 @@ export const env = {
 
   storageDriver: (process.env.STORAGE_DRIVER ?? 'local') as 'local' | 's3',
   storageDir: process.env.STORAGE_DIR ?? 'var/files',
+  /** Каталог собранного фронтенда: если задан, API сам отдаёт SPA (один контейнер для демо-стенда) */
+  staticDir: process.env.STATIC_DIR ?? '',
 
   loginMaxFailed: int('LOGIN_MAX_FAILED', 5),
   loginLockMinutes: int('LOGIN_LOCK_MINUTES', 15),
@@ -45,6 +48,10 @@ export const env = {
 
 if (env.totpEncKey.length !== 32) {
   throw new Error('TOTP_ENC_KEY должен быть 32 байтами в base64');
+}
+if (process.env.DISABLE_2FA === 'true') {
+  // eslint-disable-next-line no-console
+  console.warn('ВНИМАНИЕ: DISABLE_2FA=true — двухфакторная аутентификация отключена (только для демо-стенда)');
 }
 if (env.isProd && env.jwtAccessSecret.startsWith('dev-')) {
   throw new Error('В production задайте собственный JWT_ACCESS_SECRET');

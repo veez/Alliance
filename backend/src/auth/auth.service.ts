@@ -4,7 +4,7 @@ import { User, UserStatus } from '@prisma/client';
 import { authenticator } from 'otplib';
 import { randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
-import { requiresMfa } from '../access/permissions';
+import { mfaDisabled, requiresMfa } from '../access/permissions';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser, RequestMeta } from '../common/auth-user';
 import { AccessTokenPayload } from '../common/guards';
@@ -69,7 +69,7 @@ export class AuthService {
 
     await this.prisma.user.update({ where: { id: user.id }, data: { failedLogins: 0, lockedUntil: null } });
 
-    if (user.totpEnabledAt) {
+    if (user.totpEnabledAt && !mfaDisabled()) {
       const challengeToken = await this.jwt.signAsync({ sub: user.id, typ: '2fa' }, { expiresIn: '5m' });
       return { twoFactorRequired: true, challengeToken };
     }

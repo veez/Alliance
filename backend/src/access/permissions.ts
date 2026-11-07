@@ -114,7 +114,13 @@ export function computePermissions(s: PermissionSubject): Set<Permission> {
   return result;
 }
 
-/** Для админа и секретаря 2FA обязательна. */
+/** Демо-стенд: DISABLE_2FA=true полностью отключает второй фактор (вход только по паролю). Не использовать в рабочей среде. */
+export function mfaDisabled(): boolean {
+  return process.env.DISABLE_2FA === 'true';
+}
+
+/** Для админа и секретаря 2FA обязательна (кроме демо-стенда). */
 export function requiresMfa(role: SystemRole): boolean {
+  if (mfaDisabled()) return false;
   return role === SystemRole.ADMIN || role === SystemRole.SECRETARY;
 }

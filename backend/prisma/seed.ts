@@ -215,7 +215,8 @@ async function bootstrapAdmin() {
 
 async function main() {
   await seedReference();
-  if (process.env.NODE_ENV === 'production') {
+  // В production демо-данные добавляются только для демо-стенда (DEMO_DATA=true)
+  if (process.env.NODE_ENV === 'production' && process.env.DEMO_DATA !== 'true') {
     await bootstrapAdmin();
     return;
   }
