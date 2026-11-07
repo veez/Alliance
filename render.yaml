@@ -1,5 +1,12 @@
-# Демо-стенд на Render (бесплатный план). База — Neon (бесплатный PostgreSQL), строку подключения
-# вставьте в DATABASE_URL при создании Blueprint. Подробности — README, раздел «Демо-стенд».
+# Демо-стенд на Render (бесплатный план): веб-сервис + PostgreSQL Render.
+# Бесплатная база Render живёт 30 дней, затем её нужно пересоздать (демо-данные зальются заново).
+databases:
+  - name: alliance-demo-db
+    plan: free
+    region: frankfurt
+    databaseName: alliance
+    user: alliance
+
 services:
   - type: web
     name: alliance-portal-demo
@@ -11,7 +18,9 @@ services:
     autoDeploy: true
     envVars:
       - key: DATABASE_URL
-        sync: false # postgresql://…neon.tech/…?sslmode=require (прямое подключение, не pooler)
+        fromDatabase:
+          name: alliance-demo-db
+          property: connectionString
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: TOTP_ENC_KEY
