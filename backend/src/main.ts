@@ -16,6 +16,7 @@ export function configureApp(app: INestApplication) {
   app.setGlobalPrefix('api');
   app.use(
     helmet({
+      hsts: env.cookieSecure,
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
@@ -24,6 +25,8 @@ export function configureApp(app: INestApplication) {
           scriptSrc: ["'self'", "'unsafe-inline'"], // inline — для Swagger UI
           connectSrc: ["'self'"],
           frameAncestors: ["'none'"],
+          // Без HTTPS (демо по IP) браузер не должен переписывать запросы на https
+          upgradeInsecureRequests: env.cookieSecure ? [] : null,
         },
       },
     }),
