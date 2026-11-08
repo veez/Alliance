@@ -6,6 +6,7 @@ import { AuthUser, RequestMeta } from '../common/auth-user';
 import { FilesService, UploadedFileLike } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { syncEmployeeMembers } from './wg-employees';
 import { countTasks, isTaskOverdue, planProgress, taskEditScope } from './wg-logic';
 import { CommentDto, CommentQuery, MemberDto, PlanItemDto, TaskDto, TaskListQuery, UpdatePlanItemDto, UpdateTaskDto, UpdateWorkingGroupDto, WorkingGroupDto } from './wg.dto';
 
@@ -39,6 +40,7 @@ export class WorkingGroupsService {
   /** Обзор группы виден всем участникам Альянса; задачи, обсуждения и файлы — участникам группы и «видящим всё». */
   private async ctx(id: string, u: AuthUser): Promise<Ctx> {
     this.assertListAccess(u);
+    await syncEmployeeMembers(this.prisma, id);
     const group = await this.prisma.workingGroup.findUnique({ where: { id }, select: { id: true, name: true, status: true, isBoard: true } });
     if (!group) throw new NotFoundException('Рабочая группа не найдена');
     const m = await this.prisma.workingGroupMember.findUnique({ where: { workingGroupId_userId: { workingGroupId: id, userId: u.id } } });
@@ -72,19 +74,21 @@ export class WorkingGroupsService {
 
   async list(u: AuthUser) {
     this.assertListAccess(u);
+    await syncEmployeeMembers(this.prisma);
     const groups = await this.prisma.workingGroup.findMany({
       where: { isBoard: false },
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
       include: {
         members: { include: { user: USER_BRIEF } },
+        employeeMembers: { include: { employee: { select: { id: true, fullName: true } } } },
         planItems: { select: { status: true } },
         tasks: { select: { status: true, dueDate: true } },
       },
     });
-    return groups.map(({ members, planItems, tasks, ...g }) => ({
+    return groups.map(({ members, employeeMembers, planItems, tasks, ...g }) => ({
       ...g,
-      leads: members.filter((m) => m.role === WgRole.LEAD).map((m) => m.user),
-      membersCount: members.length,
+      leads: [...members.filter((m) => m.role === WgRole.LEAD).map((m) => m.user), ...employeeMembers.filter((m) => m.role === WgRole.LEAD).map((m) => m.employee)],
+      membersCount: members.length + employeeMembers.length,
       myRole: members.find((m) => m.userId === u.id)?.role ?? null,
       progress: planProgress(planItems),
       tasks: countTasks(tasks),
@@ -97,7 +101,11 @@ export class WorkingGroupsService {
       where: { id },
       include: {
         members: {
-          include: { user: { select: { id: true, fullName: true, position: true, organization: { select: { id: true, name: true, shortName: true } } } } },
+          include: { user: { select: { id: true, fullName: true, position: true, status: true, organization: { select: { id: true, name: true, shortName: true } } } } },
+          orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }],
+        },
+        employeeMembers: {
+          include: { employee: { select: { id: true, fullName: true, position: true, organization: { select: { id: true, name: true, shortName: true } } } } },
           orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }],
         },
         planItems: { include: { responsible: USER_BRIEF, tasks: { select: { status: true, dueDate: true } } }, orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }] },
@@ -115,6 +123,13 @@ export class WorkingGroupsService {
       status: g.status,
       isDemo: g.isDemo,
       isBoard: g.isBoard,
+      employeeMembers: g.employeeMembers.map((m) => ({
+        employeeId: m.employeeId,
+        fullName: m.employee.fullName,
+        position: m.employee.position,
+        organization: { id: m.employee.organization.id, name: m.employee.organization.shortName || m.employee.organization.name },
+        role: m.role,
+      })),
       chatVk: g.chatVk,
       chatTelegram: g.chatTelegram,
       chatMax: g.chatMax,
@@ -131,6 +146,7 @@ export class WorkingGroupsService {
         organization: m.user.organization ? { id: m.user.organization.id, name: m.user.organization.shortName || m.user.organization.name } : null,
         role: m.role,
         joinedAt: m.joinedAt,
+        account: m.user.status,
       })),
       plan: g.planItems.map(({ tasks, ...p }) => ({ ...p, tasks: countTasks(tasks) })),
       progress: planProgress(g.planItems),
@@ -182,40 +198,89 @@ export class WorkingGroupsService {
 
   // ───────────── Участники ─────────────
 
-  /** Добавлять можно активных пользователей организаций-членов Альянса. */
+  /** Добавлять можно пользователей организаций-членов Альянса, в том числе ещё не вошедших. */
   private async assertEligibleUser(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { organization: { select: { status: true } } } });
-    if (!user || user.status !== UserStatus.ACTIVE || user.organization?.status !== OrganizationStatus.MEMBER) {
-      throw new BadRequestException('В рабочую группу можно добавить только активного пользователя организации — члена Альянса');
+    if (!user || user.status === UserStatus.BLOCKED || user.organization?.status !== OrganizationStatus.MEMBER) {
+      throw new BadRequestException('В рабочую группу можно добавить только сотрудника организации — члена Альянса');
     }
     return user;
   }
 
+  /** Сотрудники организаций-членов: с учёткой (kind user) и без неё (kind employee). */
   async candidates(id: string, u: AuthUser) {
     const c = await this.ctx(id, u);
     this.requireManage(c);
-    const users = await this.prisma.user.findMany({
-      where: { status: UserStatus.ACTIVE, organization: { status: OrganizationStatus.MEMBER }, wgMemberships: { none: { workingGroupId: id } } },
-      select: { id: true, fullName: true, organization: { select: { name: true, shortName: true } } },
-      orderBy: { fullName: 'asc' },
-    });
-    return users.map((x) => ({ id: x.id, fullName: x.fullName, organization: x.organization?.shortName || x.organization?.name || null }));
+    const org = { status: OrganizationStatus.MEMBER, isDemo: false };
+    const [users, employees] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { status: { not: UserStatus.BLOCKED }, organization: org, wgMemberships: { none: { workingGroupId: id } } },
+        select: { id: true, fullName: true, status: true, organization: { select: { name: true, shortName: true } } },
+      }),
+      this.prisma.employee.findMany({
+        where: { userId: null, organization: org, workingGroups: { none: { workingGroupId: id } } },
+        select: { id: true, fullName: true, organization: { select: { name: true, shortName: true } } },
+      }),
+    ]);
+    return [
+      ...users.map((x) => ({ id: x.id, kind: 'user', account: x.status, fullName: x.fullName, organization: x.organization?.shortName || x.organization?.name || null })),
+      ...employees.map((x) => ({ id: x.id, kind: 'employee', account: null, fullName: x.fullName, organization: x.organization.shortName || x.organization.name })),
+    ].sort((a, b) => a.fullName.localeCompare(b.fullName, 'ru'));
   }
 
   async addMember(id: string, dto: MemberDto, u: AuthUser, meta: RequestMeta) {
     const c = await this.ctx(id, u);
     this.requireManage(c);
     if (dto.role === WgRole.LEAD && !u.permissions.has(P.WG_MANAGE)) throw new ForbiddenException('Назначить руководителя может администратор');
-    const user = await this.assertEligibleUser(dto.userId);
+    if (!!dto.userId === !!dto.employeeId) throw new BadRequestException('Укажите участника');
+    const role = dto.role ?? WgRole.MEMBER;
+    let userId = dto.userId;
     try {
-      await this.prisma.workingGroupMember.create({ data: { workingGroupId: id, userId: dto.userId, role: dto.role ?? WgRole.MEMBER } });
+      if (dto.employeeId) {
+        const employee = await this.prisma.employee.findUnique({ where: { id: dto.employeeId }, include: { organization: { select: { status: true } } } });
+        if (!employee || employee.organization.status !== OrganizationStatus.MEMBER) throw new BadRequestException('В рабочую группу можно добавить только сотрудника организации — члена Альянса');
+        if (!employee.userId) {
+          await this.prisma.workingGroupEmployee.create({ data: { workingGroupId: id, employeeId: employee.id, role } });
+          await this.audit.log({ actorUserId: u.id, action: 'wg.member_added', entityType: 'WorkingGroup', entityId: id, after: { employeeId: employee.id, role }, meta });
+          return { ok: true };
+        }
+        userId = employee.userId;
+      }
+      const user = await this.assertEligibleUser(userId!);
+      await this.prisma.workingGroupMember.create({ data: { workingGroupId: id, userId: user.id, role } });
+      await this.audit.log({ actorUserId: u.id, action: 'wg.member_added', entityType: 'WorkingGroup', entityId: id, after: { userId: user.id, role }, meta });
+      // Кто ещё не вошёл в портал, уведомление прочитать не сможет
+      if (user.status === UserStatus.ACTIVE) {
+        await this.notifications.notifyUsers([user], { type: 'WG_MEMBER_ADDED', title: `Вы добавлены в рабочую группу «${c.group.name}»`, link: `/working-groups/${id}` });
+      }
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw new ConflictException('Пользователь уже в группе');
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw new ConflictException('Этот человек уже в группе');
       throw e;
     }
-    await this.audit.log({ actorUserId: u.id, action: 'wg.member_added', entityType: 'WorkingGroup', entityId: id, after: { userId: dto.userId, role: dto.role ?? WgRole.MEMBER }, meta });
-    await this.notifications.notifyUsers([user], { type: 'WG_MEMBER_ADDED', title: `Вы добавлены в рабочую группу «${c.group.name}»`, link: `/working-groups/${id}` });
     return { ok: true };
+  }
+
+  private employeeKey(id: string, employeeId: string) {
+    return { workingGroupId_employeeId: { workingGroupId: id, employeeId } };
+  }
+
+  async setEmployeeRole(id: string, employeeId: string, role: WgRole, u: AuthUser, meta: RequestMeta) {
+    await this.ctx(id, u);
+    if (!u.permissions.has(P.WG_MANAGE)) throw new ForbiddenException('Назначить руководителя может администратор');
+    const m = await this.prisma.workingGroupEmployee.findUnique({ where: this.employeeKey(id, employeeId) });
+    if (!m) throw new NotFoundException('Участник не найден');
+    await this.prisma.workingGroupEmployee.update({ where: this.employeeKey(id, employeeId), data: { role } });
+    await this.audit.log({ actorUserId: u.id, action: 'wg.role_changed', entityType: 'WorkingGroup', entityId: id, before: { employeeId, role: m.role }, after: { employeeId, role }, meta });
+    return { ok: true };
+  }
+
+  async removeEmployeeMember(id: string, employeeId: string, u: AuthUser, meta: RequestMeta) {
+    const c = await this.ctx(id, u);
+    this.requireManage(c);
+    const m = await this.prisma.workingGroupEmployee.findUnique({ where: this.employeeKey(id, employeeId) });
+    if (!m) throw new NotFoundException('Участник не найден');
+    await this.prisma.workingGroupEmployee.delete({ where: this.employeeKey(id, employeeId) });
+    await this.audit.log({ actorUserId: u.id, action: 'wg.member_removed', entityType: 'WorkingGroup', entityId: id, before: { employeeId, role: m.role }, meta });
   }
 
   async setRole(id: string, userId: string, role: WgRole, u: AuthUser, meta: RequestMeta) {
@@ -236,7 +301,7 @@ export class WorkingGroupsService {
     const m = await this.prisma.workingGroupMember.findUnique({ where: { workingGroupId_userId: { workingGroupId: id, userId } } });
     if (!m) throw new NotFoundException('Участник не найден');
     if (m.role === WgRole.LEAD && !u.permissions.has(P.WG_MANAGE)) {
-      const leads = await this.prisma.workingGroupMember.count({ where: { workingGroupId: id, role: WgRole.LEAD } });
+      const leads = (await this.prisma.workingGroupMember.count({ where: { workingGroupId: id, role: WgRole.LEAD } })) + (await this.prisma.workingGroupEmployee.count({ where: { workingGroupId: id, role: WgRole.LEAD } }));
       if (leads <= 1) throw new BadRequestException('Нельзя оставить группу без руководителя — обратитесь к администратору');
     }
     await this.prisma.workingGroupMember.delete({ where: { workingGroupId_userId: { workingGroupId: id, userId } } });

@@ -8,6 +8,7 @@ import { fmtMsk, mskYear } from '../common/time';
 import { env } from '../config/env';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { syncEmployeeMembers } from '../working-groups/wg-employees';
 import { computeActivity, icsDate, icsText, registrationOpen } from './events-logic';
 import { AttendanceDto, CreateEventDto, EventListQuery, UpdateEventDto } from './events.dto';
 
@@ -61,6 +62,7 @@ export class EventsService {
   /** Приглашённые: заседание РГ или правления — участники группы; кандидаты — их представители; остальное — организации-члены. */
   async audienceUsers(e: { type: EventType; workingGroupId: string | null; isDemo?: boolean; audience?: EventAudience }) {
     if (e.type === EventType.WORKING_GROUP_MEETING && e.workingGroupId) {
+      await syncEmployeeMembers(this.prisma, e.workingGroupId);
       const members = await this.prisma.workingGroupMember.findMany({
         where: { workingGroupId: e.workingGroupId, user: { status: UserStatus.ACTIVE } },
         select: { user: { select: { id: true, email: true, fullName: true, organizationId: true } } },

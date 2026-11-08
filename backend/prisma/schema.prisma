@@ -276,22 +276,23 @@ model CandidateApplication {
 }
 
 model Employee {
+  workingGroups  WorkingGroupEmployee[]
   vk             String?
   telegram       String?
-  allianceTags   String[]  @default([]) @map("alliance_tags")
-  isPrimary      Boolean   @default(false) @map("is_primary")
+  allianceTags   String[]               @default([]) @map("alliance_tags")
+  isPrimary      Boolean                @default(false) @map("is_primary")
   notes          String?
-  pdConsentAt    DateTime? @map("pd_consent_at") @db.Timestamptz
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  userId         String?   @unique @map("user_id") @db.Uuid
-  fullName       String    @map("full_name")
+  pdConsentAt    DateTime?              @map("pd_consent_at") @db.Timestamptz
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @map("organization_id") @db.Uuid
+  userId         String?                @unique @map("user_id") @db.Uuid
+  fullName       String                 @map("full_name")
   position       String?
   email          String?
   phone          String?
-  contactPrivacy Json      @default("{}") @map("contact_privacy")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  contactPrivacy Json                   @default("{}") @map("contact_privacy")
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime               @updatedAt @map("updated_at") @db.Timestamptz
 
   organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user             User?                    @relation(fields: [userId], references: [id])
@@ -786,20 +787,21 @@ enum TaskStatus {
 }
 
 model WorkingGroup {
+  employeeMembers WorkingGroupEmployee[]
   /// Закрытый раздел правления: виден участникам, секретарю и администратору
-  isBoard      Boolean            @default(false) @map("is_board")
-  isDemo       Boolean            @default(false) @map("is_demo")
-  chatVk       String?            @map("chat_vk")
-  chatTelegram String?            @map("chat_telegram")
-  chatMax      String?            @map("chat_max")
-  leaderNames  String?            @map("leader_names")
-  id           String             @id @default(uuid()) @db.Uuid
-  name         String
-  goals        String?
-  description  String?
-  status       WorkingGroupStatus @default(ACTIVE)
-  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  isBoard         Boolean                @default(false) @map("is_board")
+  isDemo          Boolean                @default(false) @map("is_demo")
+  chatVk          String?                @map("chat_vk")
+  chatTelegram    String?                @map("chat_telegram")
+  chatMax         String?                @map("chat_max")
+  leaderNames     String?                @map("leader_names")
+  id              String                 @id @default(uuid()) @db.Uuid
+  name            String
+  goals           String?
+  description     String?
+  status          WorkingGroupStatus     @default(ACTIVE)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz
 
   members          WorkingGroupMember[]
   planItems        WgPlanItem[]
@@ -809,6 +811,20 @@ model WorkingGroup {
   responsibilities EmployeeResponsibility[]
 
   @@map("working_groups")
+}
+
+/// Участник группы из сотрудников организаций, у которого ещё нет учётки
+model WorkingGroupEmployee {
+  workingGroupId String   @map("working_group_id") @db.Uuid
+  employeeId     String   @map("employee_id") @db.Uuid
+  role           WgRole   @default(MEMBER)
+  joinedAt       DateTime @default(now()) @map("joined_at") @db.Timestamptz
+
+  workingGroup WorkingGroup @relation(fields: [workingGroupId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@id([workingGroupId, employeeId])
+  @@map("working_group_employees")
 }
 
 model WorkingGroupMember {

@@ -24,7 +24,8 @@ export class UpdateWorkingGroupDto extends PartialType(WorkingGroupDto) {
 }
 
 export class MemberDto {
-  @ApiProperty() @IsUUID() userId: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() userId?: string;
+  @ApiPropertyOptional({ description: 'Сотрудник организации-члена, в том числе без учётки' }) @IsOptional() @IsUUID() employeeId?: string;
   @ApiPropertyOptional({ enum: WgRole }) @IsOptional() @IsEnum(WgRole) role?: WgRole;
 }
 

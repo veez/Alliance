@@ -460,7 +460,8 @@ export interface WorkingGroupDetail {
   canManage: boolean;
   fullAccess: boolean;
   canJoin: boolean;
-  members: { userId: string; fullName: string; position: string | null; organization: { id: string; name: string } | null; role: WgRole; joinedAt: string }[];
+  members: { userId: string; fullName: string; position: string | null; organization: { id: string; name: string } | null; role: WgRole; joinedAt: string; account: UserStatus }[];
+  employeeMembers: { employeeId: string; fullName: string; position: string | null; organization: { id: string; name: string }; role: WgRole }[];
   plan: WgPlanItem[];
   progress: number | null;
   tasks: TaskCounters;

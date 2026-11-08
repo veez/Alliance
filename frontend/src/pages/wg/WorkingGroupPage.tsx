@@ -61,16 +61,20 @@ function EditGroupModal({ g, onClose }: { g: WorkingGroupDetail; onClose: () => 
 
 function AddMemberModal({ g, onClose }: { g: WorkingGroupDetail; onClose: () => void }) {
   const qc = useQueryClient();
-  const [userId, setUserId] = useState<string | null>(null);
+  const [value, setValue] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const cands = useQuery({ queryKey: ['wg-candidates', g.id], queryFn: () => api<{ id: string; fullName: string; organization: string | null }[]>(`/working-groups/${g.id}/candidates`) });
+  const cands = useQuery({
+    queryKey: ['wg-candidates', g.id],
+    queryFn: () => api<{ id: string; kind: 'user' | 'employee'; account: 'ACTIVE' | 'INVITED' | null; fullName: string; organization: string | null }[]>(`/working-groups/${g.id}/candidates`),
+  });
   const add = async () => {
+    const [kind, id] = value!.split(':');
     setBusy(true);
     try {
-      await api(`/working-groups/${g.id}/members`, { method: 'POST', body: { userId } });
+      await api(`/working-groups/${g.id}/members`, { method: 'POST', body: kind === 'user' ? { userId: id } : { employeeId: id } });
       await qc.invalidateQueries({ queryKey: ['working-group', g.id] });
       await qc.invalidateQueries({ queryKey: ['wg-candidates', g.id] });
-      notifyOk('Участник добавлен и получил уведомление');
+      notifyOk('Участник добавлен');
       onClose();
     } catch (e) {
       notifyError(e);
@@ -78,22 +82,24 @@ function AddMemberModal({ g, onClose }: { g: WorkingGroupDetail; onClose: () => 
       setBusy(false);
     }
   };
+  const note = (a: 'ACTIVE' | 'INVITED' | null) => (a === 'ACTIVE' ? '' : a === 'INVITED' ? ' · ещё не вошёл' : ' · нет учётной записи');
   return (
     <Modal opened onClose={onClose} title="Добавить участника">
       <Stack>
         <Select
-          label="Представитель организации — члена Альянса"
+          label="Сотрудник организации — члена Альянса"
+          description="Можно выбрать и тех, у кого ещё нет доступа к порталу. Назначить руководителем можно после добавления."
           searchable
-          data={(cands.data ?? []).map((c) => ({ value: c.id, label: `${c.fullName}${c.organization ? ` · ${c.organization}` : ''}` }))}
-          value={userId}
-          onChange={setUserId}
+          data={(cands.data ?? []).map((c) => ({ value: `${c.kind}:${c.id}`, label: `${c.fullName}${c.organization ? ` · ${c.organization}` : ''}${note(c.account)}` }))}
+          value={value}
+          onChange={setValue}
           nothingFoundMessage="Никого не найдено"
         />
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
             Отмена
           </Button>
-          <Button disabled={!userId} loading={busy} onClick={add}>
+          <Button disabled={!value} loading={busy} onClick={add}>
             Добавить
           </Button>
         </Group>
@@ -107,10 +113,10 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['working-group', g.id] }), qc.invalidateQueries({ queryKey: ['working-groups'] })]);
-  const memberAction = async (userId: string, action: 'remove' | 'lead' | 'member') => {
+  const memberAction = async (userId: string, action: 'remove' | 'lead' | 'member', path: 'members' | 'employee-members' = 'members') => {
     try {
-      if (action === 'remove') await api(`/working-groups/${g.id}/members/${userId}`, { method: 'DELETE' });
-      else await api(`/working-groups/${g.id}/members/${userId}`, { method: 'PATCH', body: { role: action === 'lead' ? 'LEAD' : 'MEMBER' } });
+      if (action === 'remove') await api(`/working-groups/${g.id}/${path}/${userId}`, { method: 'DELETE' });
+      else await api(`/working-groups/${g.id}/${path}/${userId}`, { method: 'PATCH', body: { role: action === 'lead' ? 'LEAD' : 'MEMBER' } });
       await refresh();
     } catch (e) {
       notifyError(e);
@@ -152,7 +158,7 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
           </Card>
           <Card withBorder padding="lg">
             <Group justify="space-between" mb="sm">
-              <Title order={5}>Участники ({g.members.length})</Title>
+              <Title order={5}>Участники ({g.members.length + g.employeeMembers.length})</Title>
               {g.canManage && g.status === 'ACTIVE' && (
                 <Button size="xs" variant="light" leftSection={<IconUserPlus size={14} />} onClick={() => setAdding(true)}>
                   Добавить
@@ -179,6 +185,11 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                     )}
                   </div>
                   <Group gap={4} wrap="nowrap">
+                    {m.account === 'INVITED' && (
+                      <Badge variant="outline" color="gray" size="sm">
+                        ещё не вошёл
+                      </Badge>
+                    )}
                     {m.role === 'LEAD' && (
                       <Badge variant="light" color="grape" size="sm">
                         {WG_ROLE.LEAD}
@@ -207,7 +218,49 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                   </Group>
                 </Group>
               ))}
-              {!g.members.length && (
+              {g.employeeMembers.map((m) => (
+                <Group key={m.employeeId} justify="space-between" wrap="nowrap">
+                  <div style={{ minWidth: 0 }}>
+                    <Text size="sm" fw={m.role === 'LEAD' ? 600 : undefined}>
+                      {m.fullName}
+                    </Text>
+                    <Anchor component={Link} to={`/organizations/${m.organization.id}`} size="xs" c="dimmed">
+                      {m.organization.name}
+                    </Anchor>
+                  </div>
+                  <Group gap={4} wrap="nowrap">
+                    <Badge variant="outline" color="gray" size="sm">
+                      нет учётной записи
+                    </Badge>
+                    {m.role === 'LEAD' && (
+                      <Badge variant="light" color="grape" size="sm">
+                        {WG_ROLE.LEAD}
+                      </Badge>
+                    )}
+                    {g.canManage && (
+                      <Menu position="bottom-end" withinPortal>
+                        <Menu.Target>
+                          <ActionIcon variant="subtle" color="gray" title="Действия">
+                            <IconDots size={16} />
+                          </ActionIcon>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                          {can('wg.manage') &&
+                            (m.role === 'LEAD' ? (
+                              <Menu.Item onClick={() => memberAction(m.employeeId, 'member', 'employee-members')}>Снять роль руководителя</Menu.Item>
+                            ) : (
+                              <Menu.Item onClick={() => memberAction(m.employeeId, 'lead', 'employee-members')}>Назначить руководителем</Menu.Item>
+                            ))}
+                          <Menu.Item color="red" onClick={() => memberAction(m.employeeId, 'remove', 'employee-members')}>
+                            Исключить из группы
+                          </Menu.Item>
+                        </Menu.Dropdown>
+                      </Menu>
+                    )}
+                  </Group>
+                </Group>
+              ))}
+              {!g.members.length && !g.employeeMembers.length && (
                 <Text size="sm" c="dimmed">
                   В группе пока нет участников.
                 </Text>

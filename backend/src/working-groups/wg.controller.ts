@@ -56,6 +56,17 @@ export class WorkingGroupsController {
     return this.wg.addMember(id, dto, u, meta);
   }
 
+  @Patch(':id/employee-members/:employeeId')
+  setEmployeeRole(@Id() id: string, @Param('employeeId', ParseUUIDPipe) employeeId: string, @Body() dto: MemberRoleDto, @CurrentUser() u: AuthUser, @ReqMeta() meta: RequestMeta) {
+    return this.wg.setEmployeeRole(id, employeeId, dto.role, u, meta);
+  }
+
+  @Delete(':id/employee-members/:employeeId')
+  @HttpCode(204)
+  async removeEmployeeMember(@Id() id: string, @Param('employeeId', ParseUUIDPipe) employeeId: string, @CurrentUser() u: AuthUser, @ReqMeta() meta: RequestMeta) {
+    await this.wg.removeEmployeeMember(id, employeeId, u, meta);
+  }
+
   @Patch(':id/members/:userId')
   setRole(@Id() id: string, @Param('userId', ParseUUIDPipe) userId: string, @Body() dto: MemberRoleDto, @CurrentUser() u: AuthUser, @ReqMeta() meta: RequestMeta) {
     return this.wg.setRole(id, userId, dto.role, u, meta);
