@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { api, refreshAccessToken, tokenStore } from '../api/client';
 import type { Me } from '../api/types';
 
@@ -19,6 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   // При загрузке страницы пробуем восстановить сессию по refresh-cookie
   const [booted, setBooted] = useState(false);
+  const [signedOutAt, setSignedOutAt] = useState(0);
   useEffect(() => {
     refreshAccessToken().finally(() => setBooted(true));
   }, []);
@@ -51,11 +53,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     try {
       await api('/auth/logout', { method: 'POST' });
-    } finally {
-      tokenStore.set(null);
-      qc.clear();
-      qc.setQueryData(['me'], null);
+    } catch {
+      // Сервер недоступен — локальную сессию всё равно завершаем
     }
+    tokenStore.set(null);
+    // Запрос ['me'] не удаляем: на нём держится подписка AuthProvider, нужная для следующего входа
+    qc.setQueryData(['me'], null);
+    qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+    // Контекст должен обновиться до перехода на /login, иначе GuestOnly вернёт на главную
+    flushSync(() => setSignedOutAt(Date.now()));
   }, [qc]);
 
   const me = tokenStore.get() ? (meQuery.data ?? null) : null;
@@ -68,7 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       reload: () => meQuery.refetch(),
     }),
-    [me, booted, meQuery, signIn, signOut],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- signedOutAt: токен живёт вне React
+    [me, booted, meQuery, signIn, signOut, signedOutAt],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
