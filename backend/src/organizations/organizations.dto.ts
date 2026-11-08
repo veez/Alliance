@@ -1,6 +1,6 @@
 import { ContactPrivacyDto } from '../common/privacy';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { OrganizationKind, OrganizationStatus } from '@prisma/client';
+import { OrganizationKind, OrganizationNoteKind, OrganizationStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -30,12 +30,14 @@ export class OrganizationListQuery extends PageQuery {
   @ApiPropertyOptional({ enum: OrganizationStatus }) @IsOptional() @IsEnum(OrganizationStatus) status?: OrganizationStatus;
   @ApiPropertyOptional({ enum: OrganizationKind }) @IsOptional() @IsEnum(OrganizationKind) kind?: OrganizationKind;
   @ApiPropertyOptional() @IsOptional() @IsString() regionCode?: string;
+  @ApiPropertyOptional({ description: 'true — только демо-записи; по умолчанию только настоящие' }) @IsOptional() @Transform(({ value }) => value === true || value === 'true') @IsBoolean() demo?: boolean;
 }
 
 /** Поля профиля, которые может редактировать сама организация. */
 export class OrganizationProfileDto {
   @ApiProperty() @Transform(trim) @IsString() @MinLength(2) @MaxLength(300) name: string;
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(150) shortName?: string | null;
+  @ApiPropertyOptional({ description: 'Второе название' }) @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(300) altName?: string | null;
   @ApiProperty({ example: 'RU-MOW' }) @IsString() regionCode: string;
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(150) city?: string | null;
 
@@ -94,6 +96,11 @@ export class CreateOrganizationDto extends OrganizationProfileDto {
   @IsOptional()
   @IsEnum(OrganizationStatus)
   status?: OrganizationStatus;
+}
+
+export class OrganizationNoteDto {
+  @ApiProperty() @Transform(trim) @IsString() @MinLength(1) @MaxLength(5000) body: string;
+  @ApiPropertyOptional({ enum: OrganizationNoteKind }) @IsOptional() @IsEnum(OrganizationNoteKind) kind?: OrganizationNoteKind;
 }
 
 export class ChangeStatusDto {

@@ -9,7 +9,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../../api/client';
 import type { EventListItem, EventType, Page } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { PageHeader, QueryState } from '../../components/common';
+import { PageHeader, QueryState, DemoBadge } from '../../components/common';
 import { EVENT_FORMAT, EVENT_TYPE, fmtDate, fmtTime, TZ } from '../../labels';
 import { EventFormModal, EventStatusBadge, EventTypeBadge, ProtocolStatusBadge, RegistrationBadge } from './EventShared';
 import { ProtocolsTab } from './ProtocolsTab';
@@ -34,14 +34,15 @@ export function EventRow({ e }: { e: EventListItem }) {
           <div style={{ minWidth: 0 }}>
             <Anchor component={Link} to={`/events/${e.id}`} fw={500} td={e.status === 'CANCELLED' ? 'line-through' : undefined}>
               {e.title}
-            </Anchor>
+            </Anchor>{' '}
+            <DemoBadge show={e.isDemo} />
             <Text size="sm" c="dimmed">
               {fmtTime(e.startsAt)}
               {e.endsAt ? `–${fmtTime(e.endsAt)}` : ''} МСК · {EVENT_FORMAT[e.format]}
               {e.location ? ` · ${e.location}` : ''}
             </Text>
             <Group gap={6} mt={4}>
-              <EventTypeBadge type={e.type} />
+              <EventTypeBadge type={e.type} audience={e.audience} />
               <EventStatusBadge status={e.status} />
               {e.workingGroup && (
                 <Badge variant="outline" color="grape" size="sm">
@@ -74,25 +75,15 @@ export function EventRow({ e }: { e: EventListItem }) {
   );
 }
 
-function CalendarTab() {
-  const { can } = useAuth();
+/** Календарь на месяц; с workingGroupId — только события этой группы. */
+export function EventMonth({ workingGroupId }: { workingGroupId?: string }) {
   const [month, setMonth] = useState(() => dayjs().tz(TZ).startOf('month').toDate());
   const [selected, setSelected] = useState<string | null>(null);
-  const [scope, setScope] = useState<'upcoming' | 'past'>('upcoming');
-  const [type, setType] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [debounced] = useDebouncedValue(search, 300);
-  const [page, setPage] = useState(1);
-
   const from = dayjs(month).startOf('month').subtract(7, 'day');
   const to = dayjs(month).endOf('month').add(7, 'day');
   const monthQ = useQuery({
-    queryKey: ['events', 'month', from.toISOString()],
-    queryFn: () => api<Page<EventListItem>>(`/events${qs({ scope: 'all', from: from.toISOString(), to: to.toISOString(), pageSize: 200 })}`),
-  });
-  const listQ = useQuery({
-    queryKey: ['events', 'list', scope, type, debounced, page],
-    queryFn: () => api<Page<EventListItem>>(`/events${qs({ scope, type, search: debounced || undefined, page, pageSize: 10 })}`),
+    queryKey: ['events', 'month', from.toISOString(), workingGroupId],
+    queryFn: () => api<Page<EventListItem>>(`/events${qs({ scope: 'all', from: from.toISOString(), to: to.toISOString(), workingGroupId, pageSize: 200 })}`),
   });
   const byDay = new Map<string, EventListItem[]>();
   for (const e of monthQ.data?.items ?? []) {
@@ -104,48 +95,65 @@ function CalendarTab() {
   );
 
   return (
+    <Grid>
+      <Grid.Col span={{ base: 12, md: 'content' }}>
+        <Card withBorder padding="md">
+          <Calendar
+            date={month}
+            onDateChange={(d) => {
+              setMonth(d);
+              setSelected(null);
+            }}
+            getDayProps={(d) => {
+              const k = dayjs(d).format('YYYY-MM-DD');
+              return { selected: k === selected, onClick: () => setSelected(k === selected ? null : k) };
+            }}
+            renderDay={(d) => {
+              const list = byDay.get(dayjs(d).format('YYYY-MM-DD'));
+              const color = list ? EVENT_TYPE[list[0].type].color : undefined;
+              return (
+                <Indicator size={7} color={color} offset={-3} disabled={!list}>
+                  <div>{d.getDate()}</div>
+                </Indicator>
+              );
+            }}
+          />
+        </Card>
+      </Grid.Col>
+      <Grid.Col span={{ base: 12, md: 'auto' }}>
+        <Group justify="space-between" mb="xs">
+          <Text fw={600}>{selected ? `Мероприятия ${fmtDate(selected)}` : `Мероприятия: ${dayjs(month).format('MMMM YYYY')}`}</Text>
+          {selected && (
+            <Anchor size="sm" onClick={() => setSelected(null)}>
+              весь месяц
+            </Anchor>
+          )}
+        </Group>
+        <QueryState isLoading={monthQ.isLoading} error={monthQ.error}>
+          <Stack gap="xs">
+            {monthItems.length ? monthItems.map((e) => <EventRow key={e.id} e={e} />) : <Text c="dimmed" size="sm">Мероприятий нет.</Text>}
+          </Stack>
+        </QueryState>
+      </Grid.Col>
+    </Grid>
+  );
+}
+
+function CalendarTab() {
+  const { can } = useAuth();
+  const [scope, setScope] = useState<'upcoming' | 'past'>('upcoming');
+  const [type, setType] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [debounced] = useDebouncedValue(search, 300);
+  const [page, setPage] = useState(1);
+  const listQ = useQuery({
+    queryKey: ['events', 'list', scope, type, debounced, page],
+    queryFn: () => api<Page<EventListItem>>(`/events${qs({ scope, type, search: debounced || undefined, page, pageSize: 10 })}`),
+  });
+
+  return (
     <Stack>
-      <Grid>
-        <Grid.Col span={{ base: 12, md: 'content' }}>
-          <Card withBorder padding="md">
-            <Calendar
-              date={month}
-              onDateChange={(d) => {
-                setMonth(d);
-                setSelected(null);
-              }}
-              getDayProps={(d) => {
-                const k = dayjs(d).format('YYYY-MM-DD');
-                return { selected: k === selected, onClick: () => setSelected(k === selected ? null : k) };
-              }}
-              renderDay={(d) => {
-                const list = byDay.get(dayjs(d).format('YYYY-MM-DD'));
-                const color = list ? EVENT_TYPE[list[0].type].color : undefined;
-                return (
-                  <Indicator size={7} color={color} offset={-3} disabled={!list}>
-                    <div>{d.getDate()}</div>
-                  </Indicator>
-                );
-              }}
-            />
-          </Card>
-        </Grid.Col>
-        <Grid.Col span={{ base: 12, md: 'auto' }}>
-          <Group justify="space-between" mb="xs">
-            <Text fw={600}>{selected ? `Мероприятия ${fmtDate(selected)}` : `Мероприятия: ${dayjs(month).format('MMMM YYYY')}`}</Text>
-            {selected && (
-              <Anchor size="sm" onClick={() => setSelected(null)}>
-                весь месяц
-              </Anchor>
-            )}
-          </Group>
-          <QueryState isLoading={monthQ.isLoading} error={monthQ.error}>
-            <Stack gap="xs">
-              {monthItems.length ? monthItems.map((e) => <EventRow key={e.id} e={e} />) : <Text c="dimmed" size="sm">Мероприятий нет.</Text>}
-            </Stack>
-          </QueryState>
-        </Grid.Col>
-      </Grid>
+      <EventMonth />
 
       <Group justify="space-between" mt="md">
         <SegmentedControl

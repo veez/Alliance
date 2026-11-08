@@ -6,13 +6,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useWorkingGroupsBrief } from '../../api/hooks';
-import type { EventBase, EventFormat, EventStatus, EventType, ProtocolStatus, RegistrationStatus } from '../../api/types';
+import type { EventAudience, EventBase, EventFormat, EventStatus, EventType, ProtocolStatus, RegistrationStatus } from '../../api/types';
 import { notifyError, notifyOk } from '../../components/common';
-import { EVENT_FORMAT, EVENT_STATUS, EVENT_TYPE, PROTOCOL_STATUS, REGISTRATION } from '../../labels';
+import { EVENT_AUDIENCE, EVENT_FORMAT, EVENT_STATUS, EVENT_TYPE, PROTOCOL_STATUS, REGISTRATION } from '../../labels';
 
-export const EventTypeBadge = ({ type }: { type: EventType }) => (
-  <Badge variant="light" color={EVENT_TYPE[type].color} size="sm">
-    {EVENT_TYPE[type].label}
+export const EventTypeBadge = ({ type, audience }: { type: EventType; audience?: EventAudience }) => (
+  <Badge variant="light" color={audience === 'BOARD' ? 'red' : audience === 'CANDIDATES' ? 'yellow' : EVENT_TYPE[type].color} size="sm">
+    {audience === 'BOARD' ? 'Заседание правления' : audience === 'CANDIDATES' ? 'Для кандидатов' : EVENT_TYPE[type].label}
   </Badge>
 );
 export const EventStatusBadge = ({ status }: { status: EventStatus }) =>
@@ -39,6 +39,7 @@ interface FormValues {
   title: string;
   description: string;
   type: EventType;
+  audience: EventAudience;
   format: EventFormat;
   location: string;
   onlineUrl: string;
@@ -51,7 +52,7 @@ interface FormValues {
 }
 
 /** Создание и изменение мероприятия (секретарь, администратор). */
-export function EventFormModal({ opened, onClose, event }: { opened: boolean; onClose: () => void; event?: EventBase }) {
+export function EventFormModal({ opened, onClose, event, presetGroupId }: { opened: boolean; onClose: () => void; event?: EventBase; presetGroupId?: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const groups = useWorkingGroupsBrief();
@@ -61,14 +62,15 @@ export function EventFormModal({ opened, onClose, event }: { opened: boolean; on
     initialValues: {
       title: event?.title ?? '',
       description: event?.description ?? '',
-      type: event?.type ?? 'GENERAL_MEETING',
+      type: event?.type ?? (presetGroupId ? 'WORKING_GROUP_MEETING' : 'GENERAL_MEETING'),
+      audience: event?.audience ?? (presetGroupId ? 'BOARD' : 'ALL_MEMBERS'),
       format: event?.format ?? 'ONLINE',
       location: event?.location ?? '',
       onlineUrl: event?.onlineUrl ?? '',
       startsAt: d(event?.startsAt),
       endsAt: d(event?.endsAt),
       registrationDeadline: d(event?.registrationDeadline),
-      workingGroupId: event?.workingGroupId ?? null,
+      workingGroupId: event?.workingGroupId ?? presetGroupId ?? null,
       visibleToPartners: event?.visibleToPartners ?? false,
       notify: true,
     },
@@ -77,7 +79,7 @@ export function EventFormModal({ opened, onClose, event }: { opened: boolean; on
       startsAt: (v) => (v ? null : 'Укажите дату и время начала'),
       endsAt: (v, all) => (v && all.startsAt && v <= all.startsAt ? 'Окончание должно быть позже начала' : null),
       location: (v, all) => (all.format !== 'ONLINE' && !v.trim() ? 'Укажите место проведения' : null),
-      workingGroupId: (v, all) => (all.type === 'WORKING_GROUP_MEETING' && !v ? 'Выберите рабочую группу' : null),
+      workingGroupId: (v, all) => (all.type === 'WORKING_GROUP_MEETING' && all.audience !== 'BOARD' && !v ? 'Выберите рабочую группу' : null),
     },
   });
 
@@ -86,15 +88,16 @@ export function EventFormModal({ opened, onClose, event }: { opened: boolean; on
     const body = {
       title: v.title.trim(),
       description: v.description.trim() || undefined,
-      type: v.type,
+      type: v.audience === 'BOARD' ? ('WORKING_GROUP_MEETING' as const) : v.type,
+      audience: v.type === 'WORKING_GROUP_MEETING' && v.audience !== 'BOARD' ? ('ALL_MEMBERS' as const) : v.audience,
       format: v.format,
       location: v.format === 'ONLINE' ? undefined : v.location.trim() || undefined,
       onlineUrl: v.format === 'OFFLINE' ? undefined : v.onlineUrl.trim() || undefined,
       startsAt: v.startsAt!.toISOString(),
       endsAt: v.endsAt?.toISOString(),
       registrationDeadline: v.registrationDeadline?.toISOString(),
-      workingGroupId: v.type === 'WORKING_GROUP_MEETING' ? v.workingGroupId : undefined,
-      visibleToPartners: v.visibleToPartners,
+      workingGroupId: v.audience !== 'BOARD' && v.type === 'WORKING_GROUP_MEETING' ? v.workingGroupId : undefined,
+      visibleToPartners: v.audience === 'ALL_MEMBERS' && v.visibleToPartners,
     };
     try {
       if (event) {
@@ -116,15 +119,24 @@ export function EventFormModal({ opened, onClose, event }: { opened: boolean; on
   });
 
   return (
-    <Modal opened={opened} onClose={onClose} title={event ? 'Изменить мероприятие' : 'Новое мероприятие'} size="lg">
+    <Modal opened={opened} onClose={onClose} title={event ? 'Изменить мероприятие' : presetGroupId ? 'Новое заседание' : 'Новое мероприятие'} size="lg">
       <form onSubmit={submit}>
         <Stack>
           <TextInput label="Название" withAsterisk {...form.getInputProps('title')} />
+          {!presetGroupId && (form.values.type !== 'WORKING_GROUP_MEETING' || form.values.audience === 'BOARD') && (
+            <Select
+              label="Кому рассылать"
+              description="Приглашение и напоминания получат только представители этой группы"
+              data={opts(EVENT_AUDIENCE)}
+              allowDeselect={false}
+              {...form.getInputProps('audience')}
+            />
+          )}
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            <Select label="Тип" data={opts(EVENT_TYPE)} allowDeselect={false} {...form.getInputProps('type')} />
+            {form.values.audience !== 'BOARD' && <Select label="Тип" data={opts(EVENT_TYPE)} allowDeselect={false} {...form.getInputProps('type')} />}
             <Select label="Формат" data={opts(EVENT_FORMAT)} allowDeselect={false} {...form.getInputProps('format')} />
           </SimpleGrid>
-          {form.values.type === 'WORKING_GROUP_MEETING' && (
+          {form.values.audience !== 'BOARD' && form.values.type === 'WORKING_GROUP_MEETING' && (
             <Select label="Рабочая группа" withAsterisk data={(groups.data ?? []).map((g) => ({ value: g.id, label: g.name }))} {...form.getInputProps('workingGroupId')} />
           )}
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -141,8 +153,8 @@ export function EventFormModal({ opened, onClose, event }: { opened: boolean; on
             {...form.getInputProps('registrationDeadline')}
           />
           <Textarea label="Описание и повестка" autosize minRows={3} maxRows={10} {...form.getInputProps('description')} />
-          <Checkbox label="Видно партнёрам Альянса" {...form.getInputProps('visibleToPartners', { type: 'checkbox' })} />
-          {!event && <Checkbox label="Разослать приглашения (в портале и по почте)" {...form.getInputProps('notify', { type: 'checkbox' })} />}
+          {!presetGroupId && form.values.audience === 'ALL_MEMBERS' && <Checkbox label="Видно партнёрам Альянса" {...form.getInputProps('visibleToPartners', { type: 'checkbox' })} />}
+          {!event && <Checkbox label={`Разослать приглашения (в портале и по почте): ${form.values.type === 'WORKING_GROUP_MEETING' && form.values.audience !== 'BOARD' ? 'участникам рабочей группы' : EVENT_AUDIENCE[form.values.audience].toLowerCase()}`} {...form.getInputProps('notify', { type: 'checkbox' })} />}
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
               Отмена

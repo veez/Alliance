@@ -26,24 +26,27 @@ enum UserStatus {
 }
 
 model User {
-  id             String     @id @default(uuid()) @db.Uuid
-  email          String     @unique
-  passwordHash   String?    @map("password_hash")
-  fullName       String     @map("full_name")
-  phone          String?
-  position       String?
-  organizationId String?    @map("organization_id") @db.Uuid
-  systemRole     SystemRole @default(USER) @map("system_role")
-  canViewAll     Boolean    @default(false) @map("can_view_all")
-  status         UserStatus @default(INVITED)
-  totpSecretEnc  String?    @map("totp_secret_enc")
-  totpEnabledAt  DateTime?  @map("totp_enabled_at") @db.Timestamptz
-  failedLogins   Int        @default(0) @map("failed_logins")
-  lockedUntil    DateTime?  @map("locked_until") @db.Timestamptz
-  contactPrivacy Json       @default("{}") @map("contact_privacy")
-  lastLoginAt    DateTime?  @map("last_login_at") @db.Timestamptz
-  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  mailingsCreated   Mailing[]
+  isDemo            Boolean            @default(false) @map("is_demo")
+  organizationNotes OrganizationNote[]
+  id                String             @id @default(uuid()) @db.Uuid
+  email             String             @unique
+  passwordHash      String?            @map("password_hash")
+  fullName          String             @map("full_name")
+  phone             String?
+  position          String?
+  organizationId    String?            @map("organization_id") @db.Uuid
+  systemRole        SystemRole         @default(USER) @map("system_role")
+  canViewAll        Boolean            @default(false) @map("can_view_all")
+  status            UserStatus         @default(INVITED)
+  totpSecretEnc     String?            @map("totp_secret_enc")
+  totpEnabledAt     DateTime?          @map("totp_enabled_at") @db.Timestamptz
+  failedLogins      Int                @default(0) @map("failed_logins")
+  lockedUntil       DateTime?          @map("locked_until") @db.Timestamptz
+  contactPrivacy    Json               @default("{}") @map("contact_privacy")
+  lastLoginAt       DateTime?          @map("last_login_at") @db.Timestamptz
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 
   organization        Organization?               @relation(fields: [organizationId], references: [id])
   sessions            RefreshSession[]
@@ -126,11 +129,11 @@ model PasswordReset {
 // ───────────────────────── Организации и регионы ─────────────────────────
 
 model Region {
-  code           String  @id
-  name           String
-  federalDistrict String @map("federal_district")
-  svgPathId      String? @map("svg_path_id")
-  sortOrder      Int     @default(0) @map("sort_order")
+  code            String  @id
+  name            String
+  federalDistrict String  @map("federal_district")
+  svgPathId       String? @map("svg_path_id")
+  sortOrder       Int     @default(0) @map("sort_order")
 
   organizations Organization[]
 
@@ -148,9 +151,15 @@ enum OrganizationStatus {
   PARTNER
   SUSPENDED
   EXITED
+  APPLICANT
+  REJECTED
+  EXPELLED
 }
 
 model Organization {
+  isDemo         Boolean            @default(false) @map("is_demo")
+  altName        String?            @map("alt_name")
+  notes          OrganizationNote[]
   id             String             @id @default(uuid()) @db.Uuid
   kind           OrganizationKind   @default(ORGANIZATION)
   status         OrganizationStatus @default(CANDIDATE)
@@ -161,7 +170,7 @@ model Organization {
   kpp            String?
   legalAddress   String?            @map("legal_address")
   postalAddress  String?            @map("postal_address")
-  regionCode     String             @map("region_code")
+  regionCode     String?            @map("region_code")
   city           String?
   lat            Float?
   lng            Float?
@@ -179,7 +188,7 @@ model Organization {
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 
-  region             Region                      @relation(fields: [regionCode], references: [code])
+  region             Region?                     @relation(fields: [regionCode], references: [code])
   logo               File?                       @relation("OrganizationLogo", fields: [logoFileId], references: [id])
   users              User[]
   invitations        Invitation[]
@@ -198,6 +207,27 @@ model Organization {
   @@index([regionCode])
   @@index([status])
   @@map("organizations")
+}
+
+enum OrganizationNoteKind {
+  COMMENT
+  BOARD_DECISION
+}
+
+/// Служебный журнал секретаря по организации: виден только «видящим всё»
+model OrganizationNote {
+  id             String               @id @default(uuid()) @db.Uuid
+  organizationId String               @map("organization_id") @db.Uuid
+  authorId       String?              @map("author_id") @db.Uuid
+  kind           OrganizationNoteKind @default(COMMENT)
+  body           String
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User?        @relation(fields: [authorId], references: [id])
+
+  @@index([organizationId])
+  @@map("organization_notes")
 }
 
 model OrganizationStatusHistory {
@@ -244,19 +274,25 @@ model CandidateApplication {
 }
 
 model Employee {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  userId         String?  @unique @map("user_id") @db.Uuid
-  fullName       String   @map("full_name")
+  vk             String?
+  telegram       String?
+  allianceTags   String[]  @default([]) @map("alliance_tags")
+  isPrimary      Boolean   @default(false) @map("is_primary")
+  notes          String?
+  pdConsentAt    DateTime? @map("pd_consent_at") @db.Timestamptz
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String?   @unique @map("user_id") @db.Uuid
+  fullName       String    @map("full_name")
   position       String?
   email          String?
   phone          String?
-  contactPrivacy Json     @default("{}") @map("contact_privacy")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  contactPrivacy Json      @default("{}") @map("contact_privacy")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user             User?                      @relation(fields: [userId], references: [id])
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User?                    @relation(fields: [userId], references: [id])
   responsibilities EmployeeResponsibility[]
 
   @@index([organizationId])
@@ -264,10 +300,10 @@ model Employee {
 }
 
 model ResponsibilityArea {
-  id        String  @id @default(uuid()) @db.Uuid
-  code      String  @unique
+  id        String @id @default(uuid()) @db.Uuid
+  code      String @unique
   name      String
-  sortOrder Int     @default(0) @map("sort_order")
+  sortOrder Int    @default(0) @map("sort_order")
 
   employees EmployeeResponsibility[]
 
@@ -366,6 +402,7 @@ enum QuestionFormat {
 }
 
 model Vote {
+  isDemo                Boolean         @default(false) @map("is_demo")
   id                    String          @id @default(uuid()) @db.Uuid
   number                Int             @unique @default(autoincrement())
   title                 String
@@ -618,25 +655,34 @@ enum PresenceStatus {
   ABSENT
 }
 
+enum EventAudience {
+  ALL_MEMBERS
+  BOARD
+  CANDIDATES
+}
+
 model Event {
-  id                   String      @id @default(uuid()) @db.Uuid
+  /// Кому рассылаются приглашения
+  audience             EventAudience @default(ALL_MEMBERS)
+  isDemo               Boolean       @default(false) @map("is_demo")
+  id                   String        @id @default(uuid()) @db.Uuid
   title                String
   description          String?
-  type                 EventType   @default(GENERAL_MEETING)
-  format               EventFormat @default(ONLINE)
+  type                 EventType     @default(GENERAL_MEETING)
+  format               EventFormat   @default(ONLINE)
   location             String?
-  onlineUrl            String?     @map("online_url")
-  startsAt             DateTime    @map("starts_at") @db.Timestamptz
-  endsAt               DateTime?   @map("ends_at") @db.Timestamptz
-  registrationDeadline DateTime?   @map("registration_deadline") @db.Timestamptz
-  workingGroupId       String?     @map("working_group_id") @db.Uuid
-  visibleToPartners    Boolean     @default(false) @map("visible_to_partners")
-  status               EventStatus @default(PLANNED)
+  onlineUrl            String?       @map("online_url")
+  startsAt             DateTime      @map("starts_at") @db.Timestamptz
+  endsAt               DateTime?     @map("ends_at") @db.Timestamptz
+  registrationDeadline DateTime?     @map("registration_deadline") @db.Timestamptz
+  workingGroupId       String?       @map("working_group_id") @db.Uuid
+  visibleToPartners    Boolean       @default(false) @map("visible_to_partners")
+  status               EventStatus   @default(PLANNED)
   /// Напоминание участникам за сутки уже отправлено
-  reminderSentAt       DateTime?   @map("reminder_sent_at") @db.Timestamptz
-  createdById          String      @map("created_by") @db.Uuid
-  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  reminderSentAt       DateTime?     @map("reminder_sent_at") @db.Timestamptz
+  createdById          String        @map("created_by") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
   workingGroup WorkingGroup?     @relation(fields: [workingGroupId], references: [id])
   createdBy    User              @relation("EventCreatedBy", fields: [createdById], references: [id])
@@ -673,6 +719,7 @@ enum ProtocolStatus {
 }
 
 model Protocol {
+  isDemo            Boolean        @default(false) @map("is_demo")
   id                String         @id @default(uuid()) @db.Uuid
   number            String?
   title             String
@@ -696,13 +743,13 @@ model Protocol {
 }
 
 model ProtocolItem {
-  id          String  @id @default(uuid()) @db.Uuid
-  protocolId  String  @map("protocol_id") @db.Uuid
-  position    Int
-  agendaText  String  @map("agenda_text")
-  discussion  String?
-  decision    String?
-  voteId      String? @map("vote_id") @db.Uuid
+  id         String  @id @default(uuid()) @db.Uuid
+  protocolId String  @map("protocol_id") @db.Uuid
+  position   Int
+  agendaText String  @map("agenda_text")
+  discussion String?
+  decision   String?
+  voteId     String? @map("vote_id") @db.Uuid
 
   protocol Protocol @relation(fields: [protocolId], references: [id], onDelete: Cascade)
   vote     Vote?    @relation(fields: [voteId], references: [id])
@@ -737,13 +784,20 @@ enum TaskStatus {
 }
 
 model WorkingGroup {
-  id          String             @id @default(uuid()) @db.Uuid
-  name        String
-  goals       String?
-  description String?
-  status      WorkingGroupStatus @default(ACTIVE)
-  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  /// Закрытый раздел правления: виден участникам, секретарю и администратору
+  isBoard      Boolean            @default(false) @map("is_board")
+  isDemo       Boolean            @default(false) @map("is_demo")
+  chatVk       String?            @map("chat_vk")
+  chatTelegram String?            @map("chat_telegram")
+  chatMax      String?            @map("chat_max")
+  leaderNames  String?            @map("leader_names")
+  id           String             @id @default(uuid()) @db.Uuid
+  name         String
+  goals        String?
+  description  String?
+  status       WorkingGroupStatus @default(ACTIVE)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 
   members          WorkingGroupMember[]
   planItems        WgPlanItem[]
@@ -833,6 +887,22 @@ model Comment {
 }
 
 // ───────────────────────── Уведомления, настройки, аудит ─────────────────────────
+
+/// Рассылка группе без привязки к мероприятию
+model Mailing {
+  id          String        @id @default(uuid()) @db.Uuid
+  audience    EventAudience
+  subject     String
+  body        String
+  recipients  Int
+  createdById String        @map("created_by") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([createdAt])
+  @@map("mailings")
+}
 
 model Notification {
   id        String    @id @default(uuid()) @db.Uuid

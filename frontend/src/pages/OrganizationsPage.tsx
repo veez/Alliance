@@ -7,7 +7,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, qs } from '../api/client';
 import type { Organization, OrganizationStatus, Page } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { notifyError, notifyOk, PageHeader, QueryState, StatusBadge } from '../components/common';
+import { notifyError, notifyOk, PageHeader, QueryState, StatusBadge, DemoBadge } from '../components/common';
 import { OrganizationForm, useRegionOptions } from '../components/OrganizationForm';
 import { OrgLogo } from '../components/OrgLogo';
 import { ORG_STATUS } from '../labels';
@@ -75,7 +75,7 @@ export function OrganizationsPage() {
     queryFn: () => api<Page<Organization>>(`/organizations${qs({ search: debounced, status, regionCode: region, page, pageSize: PAGE_SIZE })}`),
     placeholderData: keepPreviousData,
   });
-  const statuses: OrganizationStatus[] = full ? ['MEMBER', 'CANDIDATE', 'PARTNER', 'SUSPENDED', 'EXITED'] : ['MEMBER', 'CANDIDATE', 'PARTNER'];
+  const statuses: OrganizationStatus[] = full ? ['MEMBER', 'PARTNER', 'CANDIDATE', 'APPLICANT', 'SUSPENDED', 'EXITED', 'REJECTED', 'EXPELLED'] : ['MEMBER', 'CANDIDATE', 'PARTNER'];
 
   return (
     <Stack>
@@ -145,7 +145,8 @@ export function OrganizationsPage() {
                       <div>
                         <Anchor component={Link} to={`/organizations/${o.id}`} size="sm" fw={500}>
                           {o.shortName || o.name}
-                        </Anchor>
+                        </Anchor>{' '}
+                        <DemoBadge show={o.isDemo} />
                         <Text size="xs" c="dimmed" lineClamp={1}>
                           {o.kind === 'INDIVIDUAL' ? 'Частный специалист' : o.activityAreas.join(', ')}
                         </Text>

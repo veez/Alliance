@@ -1,16 +1,16 @@
-import { Anchor, Button, Card, Group, Modal, Select, SimpleGrid, Stack, Tabs, Text, Textarea, Timeline, Title } from '@mantine/core';
+import { Anchor, Button, Card, Group, Modal, Select, SimpleGrid, Stack, Tabs, Text, Textarea, Timeline, Title, Alert, Checkbox } from '@mantine/core';
 import { IconArrowLeft, IconExchange } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Organization, OrganizationStatus, StatusHistoryEntry } from '../api/types';
+import type { Organization, OrganizationNotes, OrganizationStatus, StatusHistoryEntry } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { EmployeesPanel } from '../components/EmployeesPanel';
 import { OrganizationForm } from '../components/OrganizationForm';
 import { OrgLogo } from '../components/OrgLogo';
 import { OrgDuesHistory } from './dues/DuesShared';
-import { notifyError, notifyOk, PageHeader, QueryState, Section, StatusBadge } from '../components/common';
+import { notifyError, notifyOk, PageHeader, QueryState, Section, StatusBadge, DemoBadge } from '../components/common';
 import { fmtDate, fmtDateTime, ORG_STATUS } from '../labels';
 
 export function StatusHistory({ orgId }: { orgId: string }) {
@@ -29,6 +29,70 @@ export function StatusHistory({ orgId }: { orgId: string }) {
           </Timeline.Item>
         ))}
       </Timeline>
+    </QueryState>
+  );
+}
+
+function OrgNotes({ orgId }: { orgId: string }) {
+  const qc = useQueryClient();
+  const { me } = useAuth();
+  const [body, setBody] = useState('');
+  const [decision, setDecision] = useState(false);
+  const data = useQuery({ queryKey: ['organization', orgId, 'notes'], queryFn: () => api<OrganizationNotes>(`/organizations/${orgId}/notes`) });
+  const add = useMutation({
+    mutationFn: () => api(`/organizations/${orgId}/notes`, { method: 'POST', body: { body, kind: decision ? 'BOARD_DECISION' : 'COMMENT' } }),
+    onSuccess: () => {
+      setBody('');
+      setDecision(false);
+      qc.invalidateQueries({ queryKey: ['organization', orgId, 'notes'] });
+    },
+    onError: notifyError,
+  });
+  const canWrite = me?.systemRole === 'ADMIN' || me?.systemRole === 'SECRETARY';
+  return (
+    <QueryState isLoading={data.isLoading} error={data.error}>
+      <Stack>
+        {!!data.data?.rejectedMatches.length && (
+          <Alert color="red" title="Похожие записи в списке отказов">
+            {data.data.rejectedMatches.map((r) => (
+              <div key={r.id}>
+                <Anchor component={Link} to={`/organizations/${r.id}`} size="sm">
+                  {r.shortName || r.name}
+                </Anchor>{' '}
+                — {ORG_STATUS[r.status].label}
+              </div>
+            ))}
+          </Alert>
+        )}
+        {canWrite && (
+          <Stack gap="xs">
+            <Textarea placeholder="Новая запись" autosize minRows={2} value={body} onChange={(e) => setBody(e.currentTarget.value)} />
+            <Group justify="space-between">
+              <Checkbox label="Решение правления" checked={decision} onChange={(e) => setDecision(e.currentTarget.checked)} />
+              <Button size="xs" disabled={!body.trim()} loading={add.isPending} onClick={() => add.mutate()}>
+                Добавить
+              </Button>
+            </Group>
+          </Stack>
+        )}
+        {data.data?.notes.map((n) => (
+          <div key={n.id}>
+            <Text size="xs" c="dimmed">
+              {fmtDateTime(n.createdAt)}
+              {n.author ? ` · ${n.author.fullName}` : ' · импорт'}
+              {n.kind === 'BOARD_DECISION' ? ' · решение правления' : ''}
+            </Text>
+            <Text size="sm" className="pre-wrap">
+              {n.body}
+            </Text>
+          </div>
+        ))}
+        {data.data && !data.data.notes.length && (
+          <Text size="sm" c="dimmed">
+            Записей пока нет.
+          </Text>
+        )}
+      </Stack>
     </QueryState>
   );
 }
@@ -111,6 +175,7 @@ export function OrganizationPage() {
               title={org.data.name}
               description={
                 <Group gap="xs">
+                  <DemoBadge show={org.data.isDemo} />
                   <StatusBadge status={org.data.status} />
                   <Text size="sm" c="dimmed">
                     {org.data.region?.name}
@@ -139,6 +204,7 @@ export function OrganizationPage() {
                 <Tabs.Tab value="card">Карточка</Tabs.Tab>
                 {org.data.fullAccess && org.data.kind === 'ORGANIZATION' && <Tabs.Tab value="employees">Сотрудники</Tabs.Tab>}
                 {org.data.fullAccess && <Tabs.Tab value="history">История статуса</Tabs.Tab>}
+                {can('orgs.read_all') && <Tabs.Tab value="notes">Журнал секретаря</Tabs.Tab>}
                 {(can('dues.read_all') || (isOwn && can('dues.read_own'))) && <Tabs.Tab value="dues">Взносы</Tabs.Tab>}
                 {isAdmin && <Tabs.Tab value="edit">Редактировать</Tabs.Tab>}
               </Tabs.List>
@@ -149,6 +215,7 @@ export function OrganizationPage() {
                       О {org.data.kind === 'INDIVIDUAL' ? 'специалисте' : 'организации'}
                     </Title>
                     <Stack gap="sm">
+                      <Field label="Другое название">{org.data.altName}</Field>
                       <Field label="Сферы деятельности">{org.data.activityAreas.join(', ')}</Field>
                       <Field label="Описание">{org.data.description}</Field>
                       <Field label="Сайт">
@@ -208,6 +275,11 @@ export function OrganizationPage() {
               <Tabs.Panel value="history" pt="md">
                 <Section title="История статуса">
                   <StatusHistory orgId={id} />
+                </Section>
+              </Tabs.Panel>
+              <Tabs.Panel value="notes" pt="md">
+                <Section title="Журнал секретаря">
+                  <OrgNotes orgId={id} />
                 </Section>
               </Tabs.Panel>
               <Tabs.Panel value="dues" pt="md">

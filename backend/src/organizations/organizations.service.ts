@@ -10,13 +10,21 @@ import { mskYear } from '../common/time';
 import { DuesService } from '../dues/dues.service';
 import { FilesService, UploadedFileLike } from '../files/files.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChangeStatusDto, CreateOrganizationDto, OrganizationListQuery, UpdateOrganizationDto } from './organizations.dto';
+import { ChangeStatusDto, CreateOrganizationDto, OrganizationListQuery, OrganizationNoteDto, UpdateOrganizationDto } from './organizations.dto';
 
 /** Статусы, видимые обычным участникам в общем списке. */
 const COMMUNITY_STATUSES: OrganizationStatus[] = ['MEMBER', 'CANDIDATE', 'PARTNER'];
 
-const BASIC_FIELDS = ['id', 'kind', 'status', 'name', 'shortName', 'regionCode', 'city', 'activityAreas', 'description', 'website', 'logoFileId', 'joinedAt', 'showOnMap'] as const;
+const BASIC_FIELDS = ['id', 'kind', 'status', 'name', 'shortName', 'altName', 'isDemo', 'regionCode', 'city', 'activityAreas', 'description', 'website', 'logoFileId', 'joinedAt', 'showOnMap'] as const;
 const CONTACT_FIELDS = ['email', 'phone', 'headName', 'headPosition'] as const;
+
+const REJECTED_STATUSES: OrganizationStatus[] = ['REJECTED', 'EXPELLED'];
+
+/** Название без формы организации и кавычек — для поиска совпадений. */
+export function coreName(name: string): string {
+  const quoted = name.match(/[«"„“]([^«»"„“”]+)[»"“”]/g)?.pop();
+  return (quoted ?? name).replace(/[«»"„“”]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
 
 type OrgWithRegion = Organization & { region?: { code: string; name: string } | null };
 
@@ -48,18 +56,20 @@ export class OrganizationsService {
   async list(q: OrganizationListQuery, viewer: AuthUser): Promise<Page<unknown>> {
     const full = viewer.permissions.has(P.ORGS_READ_ALL);
     const statusFilter: Prisma.EnumOrganizationStatusFilter | OrganizationStatus | undefined = full
-      ? q.status
+      ? (q.status ?? { notIn: REJECTED_STATUSES }) // отказы — только по явному выбору статуса
       : q.status && COMMUNITY_STATUSES.includes(q.status)
         ? q.status
         : { in: COMMUNITY_STATUSES };
     const where: Prisma.OrganizationWhereInput = {
       status: statusFilter,
+      isDemo: q.demo ?? false,
       kind: q.kind,
       regionCode: q.regionCode,
       OR: q.search
         ? [
             { name: { contains: q.search, mode: 'insensitive' } },
             { shortName: { contains: q.search, mode: 'insensitive' } },
+            { altName: { contains: q.search, mode: 'insensitive' } },
             { city: { contains: q.search, mode: 'insensitive' } },
             ...(full ? [{ inn: { contains: q.search } }] : []),
           ]
@@ -112,7 +122,7 @@ export class OrganizationsService {
     if (dto.regionCode) await this.assertRegion(dto.regionCode);
     const after = await this.prisma.organization.update({
       where: { id },
-      data: { ...dto, contactPrivacy: privacyData(dto.contactPrivacy) },
+      data: { ...dto, regionCode: dto.regionCode || undefined, contactPrivacy: privacyData(dto.contactPrivacy) },
       include: { region: { select: { code: true, name: true } } },
     });
     await this.audit.log({ actorUserId: actor.id, action: 'organization.updated', entityType: 'Organization', entityId: id, before, after, meta });
@@ -161,6 +171,31 @@ export class OrganizationsService {
       orderBy: { changedAt: 'desc' },
       include: { changedBy: { select: { id: true, fullName: true } } },
     });
+  }
+
+  /** Журнал секретаря; для заявителей и кандидатов — совпадения со списком отказов. */
+  async notes(id: string, viewer: AuthUser) {
+    this.access.assert(viewer.permissions.has(P.ORGS_READ_ALL));
+    const org = await this.findOrThrow(id);
+    const [notes, rejected] = await Promise.all([
+      this.prisma.organizationNote.findMany({ where: { organizationId: id }, orderBy: { createdAt: 'desc' }, include: { author: { select: { id: true, fullName: true } } } }),
+      this.prisma.organization.findMany({ where: { status: { in: REJECTED_STATUSES }, isDemo: org.isDemo, id: { not: id } }, select: { id: true, name: true, shortName: true, status: true, email: true } }),
+    ]);
+    const core = coreName(org.name);
+    const email = org.email?.toLowerCase();
+    return {
+      notes,
+      rejectedMatches: REJECTED_STATUSES.includes(org.status) ? [] : rejected.filter((r) => coreName(r.name) === core || (!!email && r.email?.toLowerCase() === email)).map(({ email: _e, ...r }) => r),
+    };
+  }
+
+  /** Записи ведут секретарь и администратор. */
+  async addNote(id: string, dto: OrganizationNoteDto, actor: AuthUser, meta: RequestMeta) {
+    this.access.assert(actor.systemRole === 'ADMIN' || actor.systemRole === 'SECRETARY');
+    await this.findOrThrow(id);
+    const note = await this.prisma.organizationNote.create({ data: { organizationId: id, authorId: actor.id, kind: dto.kind, body: dto.body }, include: { author: { select: { id: true, fullName: true } } } });
+    await this.audit.log({ actorUserId: actor.id, action: 'organization.note_added', entityType: 'Organization', entityId: id, after: { noteId: note.id }, meta });
+    return note;
   }
 
   async uploadLogo(id: string, file: UploadedFileLike | undefined, actor: AuthUser, meta: RequestMeta) {

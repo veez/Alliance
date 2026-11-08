@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { EventFormat, EventStatus, EventType, PresenceStatus } from '@prisma/client';
+import { EventAudience, EventFormat, EventStatus, EventType, PresenceStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -45,6 +45,7 @@ export class EventDto {
   @ApiPropertyOptional({ description: 'Регистрация до (по умолчанию — до начала)' }) @IsOptional() @ValidateIf(notNull) @IsDateString() registrationDeadline?: string | null;
   @ApiPropertyOptional({ description: 'Для заседаний рабочей группы' }) @IsOptional() @ValidateIf(notNull) @IsUUID() workingGroupId?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() visibleToPartners?: boolean;
+  @ApiPropertyOptional({ enum: EventAudience, description: 'Кому рассылаются приглашения' }) @IsOptional() @IsEnum(EventAudience) audience?: EventAudience;
 }
 
 export class CreateEventDto extends EventDto {

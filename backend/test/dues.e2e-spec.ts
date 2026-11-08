@@ -167,6 +167,35 @@ describe('Взносы и договоры (e2e)', () => {
       await http().get(`/api/agreements/${created.body.id}/files/${file.body.id}`).set(auth(await login(app, 'opora@alliance.local'))).expect(404);
       await http().patch(`/api/agreements/${created.body.id}`).set(auth(secretary)).send({ status: 'TERMINATED' }).expect(200);
     });
+
+    it('договоры: организация с особыми правами «видеть всё» видит только свои', async () => {
+      const own = await orgOf('apk');
+      const other = await orgOf('kazhdyi');
+      const create = (organizationId: string, number: string) =>
+        http().post('/api/agreements').set(auth(secretary)).send({ organizationId, number, year, amount: 1000, status: 'SIGNED', signedAt: `${year}-03-01` }).expect(201);
+      const mine = await create(own.id, 'ДП-СВОЙ/1');
+      const foreign = await create(other.id, 'ДП-ЧУЖОЙ/1');
+      const file = await http()
+        .post(`/api/agreements/${foreign.body.id}/files`)
+        .set(auth(secretary))
+        .attach('file', Buffer.from('%PDF-1.4'), { filename: 'Чужой.pdf', contentType: 'application/pdf' })
+        .expect(201);
+
+      const token = await login(app, 'apk@alliance.local');
+      for (const url of ['/api/agreements?pageSize=100', `/api/agreements?organizationId=${other.id}&pageSize=100`]) {
+        const list = await http().get(url).set(auth(token)).expect(200);
+        expect(list.body.items.map((a: { id: string }) => a.id)).toContain(mine.body.id);
+        expect(list.body.items.every((a: { organizationId: string }) => a.organizationId === own.id)).toBe(true);
+      }
+      const history = await http().get(`/api/dues/organization/${other.id}`).set(auth(token)).expect(200);
+      expect(history.body).toMatchObject({ agreements: [], agreementsVisible: false });
+      await http().get(`/api/agreements/${foreign.body.id}/files/${file.body.id}`).set(auth(token)).expect(404);
+      const audit = await http().get('/api/admin/audit?entityType=Agreement').set(auth(token)).expect(200);
+      expect(audit.body.total).toBe(0);
+
+      const all = await http().get(`/api/agreements?organizationId=${other.id}`).set(auth(secretary)).expect(200);
+      expect(all.body.items.map((a: { id: string }) => a.id)).toContain(foreign.body.id);
+    });
   });
 
   describe('напоминания и связь с голосованиями', () => {

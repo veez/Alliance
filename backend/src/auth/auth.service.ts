@@ -146,14 +146,18 @@ export class AuthService {
         wgMemberships: { where: { role: 'LEAD' }, select: { workingGroupId: true } },
       },
     });
+    const staff = u.systemRole === 'ADMIN' || u.systemRole === 'SECRETARY';
+    const board = await this.prisma.workingGroup.findFirst({ where: { isBoard: true, ...(staff ? {} : { members: { some: { userId: u.id } } }) }, select: { id: true } });
     return {
       id: u.id,
+      boardGroupId: board?.id ?? null,
       email: u.email,
       fullName: u.fullName,
       phone: u.phone,
       position: u.position,
       systemRole: u.systemRole,
       canViewAll: u.canViewAll,
+      isDemo: u.isDemo,
       organization: u.organization,
       totpEnabled: !!u.totpEnabledAt,
       mfaRequired: requiresMfa(u.systemRole),

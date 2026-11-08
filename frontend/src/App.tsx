@@ -28,6 +28,7 @@ import { ContactsPage } from './pages/map/ContactsPage';
 import { MapPage } from './pages/map/MapPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { SettingsPage } from './pages/admin/SettingsPage';
+import { MailingsPage } from './pages/admin/MailingsPage';
 
 function FullScreenLoader() {
   return (
@@ -75,6 +76,7 @@ export function App() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="admin/users" element={<RequirePermission permission="users.manage"><UsersPage /></RequirePermission>} />
         <Route path="admin/settings" element={<RequirePermission permission="settings.manage"><SettingsPage /></RequirePermission>} />
+        <Route path="admin/mailings" element={<RequirePermission permission="mailings.send"><MailingsPage /></RequirePermission>} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="admin/audit" element={<RequirePermission permission="audit.read"><AuditPage /></RequirePermission>} />
         <Route path="votes" element={<VotesPage />} />

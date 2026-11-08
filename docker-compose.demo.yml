@@ -31,8 +31,9 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?задайте JWT_ACCESS_SECRET}
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?задайте TOTP_ENC_KEY}
       COOKIE_SECURE: ${COOKIE_SECURE:-false} # true только при HTTPS
-      DEMO_DATA: 'true'
-      DISABLE_2FA: 'true'
+      # С реальными данными оба флага выключены; true — только для стенда без реальных данных
+      DEMO_DATA: ${DEMO_DATA:-false}
+      DISABLE_2FA: ${DISABLE_2FA:-false}
     volumes:
       - demo-files:/app/var
 

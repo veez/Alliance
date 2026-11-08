@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { api, qs } from '../../api/client';
 import type { Page, ProtocolListItem } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { QueryState } from '../../components/common';
+import { QueryState, DemoBadge } from '../../components/common';
 import { fmtDate } from '../../labels';
 import { EventTypeBadge, ProtocolStatusBadge } from './EventShared';
 
@@ -72,7 +72,7 @@ export function ProtocolsTab({ workingGroupId }: { workingGroupId?: string }) {
                     <Table.Td>
                       <Anchor component={Link} to={`/protocols/${p.id}`} size="sm" fw={500}>
                         {p.number ? `№ ${p.number}. ` : ''}
-                        {p.title}
+                        {p.title} <DemoBadge show={p.isDemo} />
                       </Anchor>
                       <Text size="xs" c="dimmed">
                         Вопросов: {p._count.items}

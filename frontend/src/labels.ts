@@ -2,7 +2,7 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/ru';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
-import type { PlanStatus, TaskStatus, WgRole, EventFormat, EventStatus, EventType, PresenceStatus, ProtocolStatus, RegistrationStatus, AgreementStatus, DuesStatus, OrganizationStatus, QuestionFormat, SystemRole, UserStatus, VoteEligibility, VoteScenario, VoteStatus } from './api/types';
+import type { EventAudience, PlanStatus, TaskStatus, WgRole, EventFormat, EventStatus, EventType, PresenceStatus, ProtocolStatus, RegistrationStatus, AgreementStatus, DuesStatus, OrganizationStatus, QuestionFormat, SystemRole, UserStatus, VoteEligibility, VoteScenario, VoteStatus } from './api/types';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -19,7 +19,12 @@ export const ORG_STATUS: Record<OrganizationStatus, { label: string; color: stri
   PARTNER: { label: 'Партнёр', color: 'grape' },
   SUSPENDED: { label: 'Членство приостановлено', color: 'orange' },
   EXITED: { label: 'Вышла из Альянса', color: 'gray' },
+  APPLICANT: { label: 'Заявитель', color: 'blue' },
+  REJECTED: { label: 'Не прошла отбор', color: 'red' },
+  EXPELLED: { label: 'Исключена', color: 'red' },
 };
+
+export const ALLIANCE_TAG: Record<string, string> = { BOARD: 'Правление', COORDINATOR: 'Координатор', EXPERT: 'Эксперт' };
 
 export const SYSTEM_ROLE: Record<SystemRole, string> = {
   ADMIN: 'Администратор',
@@ -185,6 +190,8 @@ export const EVENT_TYPE: Record<EventType, { label: string; color: string }> = {
   WORKING_GROUP_MEETING: { label: 'Заседание РГ', color: 'grape' },
   OTHER: { label: 'Мероприятие', color: 'gray' },
 };
+export const EVENT_AUDIENCE: Record<EventAudience, string> = { ALL_MEMBERS: 'Все члены Альянса', BOARD: 'Только правление', CANDIDATES: 'Кандидаты' };
+
 export const EVENT_FORMAT: Record<EventFormat, string> = { OFFLINE: 'Очно', ONLINE: 'Онлайн', HYBRID: 'Очно и онлайн' };
 export const EVENT_STATUS: Record<EventStatus, { label: string; color: string }> = {
   PLANNED: { label: 'Запланировано', color: 'blue' },

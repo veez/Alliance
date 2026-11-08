@@ -57,6 +57,7 @@ function ActiveVotesTile() {
             <Group key={v.id} justify="space-between" wrap="nowrap" gap="xs">
               <div style={{ minWidth: 0 }}>
                 <Anchor component={Link} to={`/votes/${v.id}`} size="sm" lineClamp={1}>
+                  {v.isDemo ? '[ДЕМО] ' : ''}
                   {v.title}
                 </Anchor>
                 <Text size="xs" c="dimmed">
@@ -97,6 +98,7 @@ function UpcomingEventsTile() {
             <Group key={e.id} justify="space-between" wrap="nowrap" gap="xs">
               <div style={{ minWidth: 0 }}>
                 <Anchor component={Link} to={`/events/${e.id}`} size="sm" lineClamp={1}>
+                  {e.isDemo ? '[ДЕМО] ' : ''}
                   {e.title}
                 </Anchor>
                 <Text size="xs" c="dimmed">

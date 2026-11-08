@@ -28,7 +28,7 @@ export class CommunityService {
     return u.permissions.has(P.ORGS_READ_ALL);
   }
   /** Скрытые контакты видят своя организация и «видящие всё». */
-  private mask<T extends { email?: string | null; phone?: string | null }>(obj: T, privacy: unknown, orgId: string, u: AuthUser): T {
+  private mask<T extends { email?: string | null; phone?: string | null; vk?: string | null; telegram?: string | null }>(obj: T, privacy: unknown, orgId: string, u: AuthUser): T {
     return this.seesAll(u) || u.organizationId === orgId ? obj : maskContacts(obj, privacy);
   }
 
@@ -37,7 +37,7 @@ export class CommunityService {
   async map() {
     const [regions, orgs] = await Promise.all([
       this.prisma.region.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
-      this.prisma.organization.groupBy({ by: ['regionCode', 'status'], where: { status: { in: MAP_STATUSES }, showOnMap: true }, _count: true }),
+      this.prisma.organization.groupBy({ by: ['regionCode', 'status'], where: { status: { in: MAP_STATUSES }, showOnMap: true, isDemo: false }, _count: true }),
     ]);
     const count = (code: string, s: OrganizationStatus) => orgs.find((o) => o.regionCode === code && o.status === s)?._count ?? 0;
     const rows = regions.map((r) => ({
@@ -65,7 +65,7 @@ export class CommunityService {
     const region = await this.prisma.region.findUnique({ where: { code } });
     if (!region) throw new NotFoundException('Регион не найден');
     const orgs = await this.prisma.organization.findMany({
-      where: { regionCode: code, status: { in: MAP_STATUSES }, showOnMap: true },
+      where: { regionCode: code, status: { in: MAP_STATUSES }, showOnMap: true, isDemo: false },
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
     });
     const contacts = u.permissions.has(P.CONTACTS_READ) || this.seesAll(u);
@@ -92,6 +92,7 @@ export class CommunityService {
   private orgWhere(q: ContactsQuery): Prisma.OrganizationWhereInput {
     return {
       status: OrganizationStatus.MEMBER,
+      isDemo: false,
       regionCode: q.regionCode,
       region: q.district ? { federalDistrict: q.district } : undefined,
       id: q.organizationId,
@@ -122,7 +123,7 @@ export class CommunityService {
         shortName: o.shortName,
         kind: o.kind,
         city: o.city,
-        region: { code: o.region.code, name: o.region.name, district: o.region.federalDistrict },
+        region: o.region ? { code: o.region.code, name: o.region.name, district: o.region.federalDistrict } : null,
         website: o.website,
         activityAreas: o.activityAreas,
         logoFileId: o.logoFileId,
@@ -153,7 +154,9 @@ export class CommunityService {
     if (!this.seesAll(u)) {
       and.push({
         OR: [
-          { NOT: { contactPrivacy: { path: ['hideFromDirectory'], equals: true } } },
+          // У записей без этого ключа значение пути — NULL, и одного NOT здесь недостаточно
+          { contactPrivacy: { path: ['hideFromDirectory'], equals: Prisma.AnyNull } },
+          { contactPrivacy: { path: ['hideFromDirectory'], equals: false } },
           ...(u.organizationId ? [{ organizationId: u.organizationId }] : []),
         ],
       });
@@ -166,7 +169,7 @@ export class CommunityService {
           organization: { select: { id: true, name: true, shortName: true, city: true, region: { select: { code: true, name: true } } } },
           responsibilities: { include: { area: { select: { code: true, name: true } }, workingGroup: { select: { id: true, name: true } } } },
         },
-        orderBy: [{ organization: { name: 'asc' } }, { fullName: 'asc' }],
+        orderBy: [{ organization: { name: 'asc' } }, { isPrimary: 'desc' }, { fullName: 'asc' }],
         ...pageArgs(q),
       }),
       this.prisma.employee.count({ where }),
@@ -176,7 +179,9 @@ export class CommunityService {
         id: e.id,
         fullName: e.fullName,
         position: e.position,
-        ...this.mask({ email: e.email, phone: e.phone }, e.contactPrivacy, e.organizationId, u),
+        allianceTags: e.allianceTags,
+        isPrimary: e.isPrimary,
+        ...this.mask({ email: e.email, phone: e.phone, vk: e.vk, telegram: e.telegram }, e.contactPrivacy, e.organizationId, u),
         hiddenFromDirectory: !!readPrivacy(e.contactPrivacy).hideFromDirectory,
         organization: { id: e.organization.id, name: e.organization.shortName || e.organization.name, city: e.organization.city, region: e.organization.region },
         responsibilities: e.responsibilities.map((r) => ({ area: r.area, workingGroup: r.workingGroup })),

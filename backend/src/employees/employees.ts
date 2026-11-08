@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Injectable, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags, PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser, RequestMeta } from '../common/auth-user';
@@ -26,6 +26,12 @@ export class EmployeeDto {
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(200) position?: string | null;
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsEmail({}, { message: 'Некорректный email' }) email?: string | null;
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(50) phone?: string | null;
+  @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(300) vk?: string | null;
+  @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(100) telegram?: string | null;
+  @ApiPropertyOptional({ description: 'BOARD, COORDINATOR, EXPERT' }) @IsOptional() @IsArray() @ArrayMaxSize(5) @IsIn(['BOARD', 'COORDINATOR', 'EXPERT'], { each: true }) allianceTags?: string[];
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isPrimary?: boolean;
+  @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(2000) notes?: string | null;
+  @ApiPropertyOptional({ description: 'Есть согласие на обработку персональных данных' }) @IsOptional() @IsBoolean() pdConsent?: boolean;
   @ApiPropertyOptional({ type: ContactPrivacyDto }) @IsOptional() @ValidateNested() @Type(() => ContactPrivacyDto) contactPrivacy?: ContactPrivacyDto;
 
   @ApiPropertyOptional({ type: [ResponsibilityDto] })
@@ -56,15 +62,16 @@ export class EmployeesService {
 
   async list(orgId: string, viewer: AuthUser) {
     this.access.assert(this.access.canReadEmployees(viewer, orgId));
-    return this.prisma.employee.findMany({ where: { organizationId: orgId }, include: INCLUDE, orderBy: { fullName: 'asc' } });
+    return this.prisma.employee.findMany({ where: { organizationId: orgId }, include: INCLUDE, orderBy: [{ isPrimary: 'desc' }, { fullName: 'asc' }] });
   }
 
   async create(orgId: string, dto: EmployeeDto, actor: AuthUser, meta: RequestMeta) {
     this.access.assert(this.access.canManageEmployees(actor, orgId));
     if (!(await this.prisma.organization.findUnique({ where: { id: orgId }, select: { id: true } }))) throw new NotFoundException('Организация не найдена');
-    const { responsibilities, contactPrivacy, ...rest } = dto;
-    const data = { ...rest, contactPrivacy: privacyData(contactPrivacy) };
+    const { responsibilities, contactPrivacy, pdConsent, ...rest } = dto;
+    const data = { ...rest, contactPrivacy: privacyData(contactPrivacy), pdConsentAt: pdConsent ? new Date() : undefined };
     return this.prisma.$transaction(async (tx) => {
+      if (rest.isPrimary) await tx.employee.updateMany({ where: { organizationId: orgId }, data: { isPrimary: false } });
       const e = await tx.employee.create({
         data: { ...data, organizationId: orgId, responsibilities: { create: this.dedupe(responsibilities) } },
         include: INCLUDE,
@@ -77,9 +84,12 @@ export class EmployeesService {
   async update(orgId: string, id: string, dto: UpdateEmployeeDto, actor: AuthUser, meta: RequestMeta) {
     this.access.assert(this.access.canManageEmployees(actor, orgId));
     const before = await this.findInOrg(orgId, id);
-    const { responsibilities, contactPrivacy, ...rest } = dto;
-    const data = { ...rest, contactPrivacy: privacyData(contactPrivacy) };
+    const { responsibilities, contactPrivacy, pdConsent, ...rest } = dto;
+    // Дату согласия не сдвигаем, если оно уже было отмечено
+    const pdConsentAt = pdConsent === undefined ? undefined : pdConsent ? (before.pdConsentAt ?? new Date()) : null;
+    const data = { ...rest, contactPrivacy: privacyData(contactPrivacy), pdConsentAt };
     return this.prisma.$transaction(async (tx) => {
+      if (rest.isPrimary) await tx.employee.updateMany({ where: { organizationId: orgId, id: { not: id } }, data: { isPrimary: false } });
       if (responsibilities) {
         await tx.employeeResponsibility.deleteMany({ where: { employeeId: id } });
         await tx.employeeResponsibility.createMany({ data: this.dedupe(responsibilities).map((r) => ({ ...r, employeeId: id })) });
@@ -169,7 +179,8 @@ export class ReferenceController {
   }
 
   @Get('working-groups/brief')
-  workingGroups() {
-    return this.prisma.workingGroup.findMany({ where: { status: 'ACTIVE' }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  workingGroups(@CurrentUser() u: AuthUser) {
+    const staff = u.systemRole === 'ADMIN' || u.systemRole === 'SECRETARY';
+    return this.prisma.workingGroup.findMany({ where: { status: 'ACTIVE', ...(staff ? {} : { OR: [{ isBoard: false }, { members: { some: { userId: u.id } } }] }) }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
   }
 }

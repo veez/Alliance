@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 /** Типы уведомлений, которые пользователь может настраивать. hasEmail — есть ли письмо у этого типа. */
 export const NOTIFICATION_TYPES: Record<string, { label: string; group: string; hasEmail: boolean }> = {
+  MAILING: { label: 'Рассылка Альянса', group: 'Рассылки', hasEmail: true },
   VOTE_STARTED: { label: 'Начато голосование', group: 'Голосования', hasEmail: true },
   VOTE_REMINDER: { label: 'Напоминание о голосовании', group: 'Голосования', hasEmail: true },
   VOTE_CLOSED: { label: 'Итоги голосования', group: 'Голосования', hasEmail: true },

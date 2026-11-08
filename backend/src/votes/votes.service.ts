@@ -132,8 +132,9 @@ export class VotesService {
     const now = new Date();
     const items = rows.map(({ participations, eligibleVoters, _count, result, ...v }) => ({
       ...v,
-      eligibleCount: _count.eligibleVoters,
-      participatedCount: _count.participations,
+      // У завершённых — зафиксированные итоги: организации могли быть удалены позже
+      eligibleCount: (result as unknown as VoteResult | null)?.eligibleCount ?? _count.eligibleVoters,
+      participatedCount: (result as unknown as VoteResult | null)?.participatedCount ?? _count.participations,
       myVotedAt: participations[0]?.votedAt ?? null,
       canVote: this.voteOpen(v, now) && eligibleVoters.length > 0 && user.permissions.has(P.VOTE_CAST),
       quorumReached: result ? (result as unknown as VoteResult).quorumReached : null,
@@ -176,7 +177,7 @@ export class VotesService {
         return {
           organizationId: e.organizationId,
           organizationName: e.organization.shortName || e.organization.name,
-          regionName: e.organization.region.name,
+          regionName: e.organization.region?.name ?? '—',
           votedAt: p?.votedAt ?? null,
           votedBy: p?.votedBy ?? null,
           answers: byQ,
@@ -345,12 +346,12 @@ export class VotesService {
     if (vote.eligibility === VoteEligibility.LIST) {
       const listed = await this.prisma.voteEligibleVoter.findMany({ where: { voteId: vote.id }, select: { organizationId: true } });
       const members = await this.prisma.organization.findMany({
-        where: { id: { in: listed.map((l) => l.organizationId) }, status: OrganizationStatus.MEMBER, ...notSubject },
+        where: { id: { in: listed.map((l) => l.organizationId) }, status: OrganizationStatus.MEMBER, isDemo: vote.isDemo, ...notSubject },
         select: { id: true },
       });
       return members.map((m) => m.id);
     }
-    const where: Prisma.OrganizationWhereInput = { status: OrganizationStatus.MEMBER, ...notSubject };
+    const where: Prisma.OrganizationWhereInput = { status: OrganizationStatus.MEMBER, isDemo: vote.isDemo, ...notSubject };
     // PAID_DUES — всегда; ALL_MEMBERS — если в настройках года включено «голосуют только оплатившие»
     if (vote.eligibility === VoteEligibility.PAID_DUES || (await this.dues.votingRequiresPaid())) {
       where.dues = { some: { year: mskYear(), status: { in: [DuesStatus.PAID, DuesStatus.WAIVED] } } };

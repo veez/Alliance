@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Prisma } from '@prisma/client';
 import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 import { P } from '../access/permissions';
-import { RequirePermissions } from '../common/decorators';
+import { AuthUser } from '../common/auth-user';
+import { CurrentUser, RequirePermissions } from '../common/decorators';
 import { Page, PageQuery, pageArgs } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -24,9 +25,11 @@ export class AuditController {
 
   @Get()
   @RequirePermissions(P.AUDIT_READ)
-  async list(@Query() q: AuditQuery): Promise<Page<unknown>> {
+  async list(@Query() q: AuditQuery, @CurrentUser() user: AuthUser): Promise<Page<unknown>> {
     const where: Prisma.AuditLogWhereInput = {
       entityType: q.entityType,
+      // Суммы и номера договоров пожертвования — только секретарю и администратору
+      NOT: user.permissions.has(P.DUES_MANAGE) ? undefined : { entityType: 'Agreement' },
       entityId: q.entityId,
       actorUserId: q.actorUserId,
       action: q.action ? { contains: q.action } : undefined,

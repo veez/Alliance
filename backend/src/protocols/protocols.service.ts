@@ -63,7 +63,10 @@ export class ProtocolsService {
       : u.permissions.has(P.PARTNER_MATERIALS_READ)
         ? { status: ProtocolStatus.PUBLISHED, visibleToPartners: true }
         : { id: { in: [] } };
-    return led.length ? { OR: [published, { workingGroupId: { in: led } }] } : published;
+    // Протоколы правления видны только его участникам
+    const closed = { isBoard: true, members: { none: { userId: u.id } } };
+    const board: Prisma.ProtocolWhereInput = { NOT: [{ workingGroup: closed }, { event: { workingGroup: closed } }] };
+    return { AND: [board, led.length ? { OR: [published, { workingGroupId: { in: led } }] } : published] };
   }
 
   private async load(id: string, u: AuthUser): Promise<ProtocolFull> {

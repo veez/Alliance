@@ -15,7 +15,7 @@ const ALLOWED_MIME =
 const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(`${v.slice(0, 10)}T00:00:00Z`));
 
 interface Ctx {
-  group: { id: string; name: string; status: WorkingGroupStatus };
+  group: { id: string; name: string; status: WorkingGroupStatus; isBoard: boolean };
   role: WgRole | null;
   canManage: boolean;
   fullAccess: boolean;
@@ -39,11 +39,14 @@ export class WorkingGroupsService {
   /** Обзор группы виден всем участникам Альянса; задачи, обсуждения и файлы — участникам группы и «видящим всё». */
   private async ctx(id: string, u: AuthUser): Promise<Ctx> {
     this.assertListAccess(u);
-    const group = await this.prisma.workingGroup.findUnique({ where: { id }, select: { id: true, name: true, status: true } });
+    const group = await this.prisma.workingGroup.findUnique({ where: { id }, select: { id: true, name: true, status: true, isBoard: true } });
     if (!group) throw new NotFoundException('Рабочая группа не найдена');
     const m = await this.prisma.workingGroupMember.findUnique({ where: { workingGroupId_userId: { workingGroupId: id, userId: u.id } } });
     const role = m?.role ?? null;
-    const canManage = u.permissions.has(P.WG_MANAGE) || role === WgRole.LEAD;
+    // Правление закрыто и от «видящих всё»: доступ только у участников, секретаря и администратора
+    const staff = u.systemRole === 'ADMIN' || u.systemRole === 'SECRETARY';
+    if (group.isBoard && !role && !staff) throw new NotFoundException('Рабочая группа не найдена');
+    const canManage = u.permissions.has(P.WG_MANAGE) || role === WgRole.LEAD || (group.isBoard && staff);
     return { group, role, canManage, fullAccess: canManage || !!role || u.permissions.has(P.WG_READ_ALL) };
   }
 
@@ -70,6 +73,7 @@ export class WorkingGroupsService {
   async list(u: AuthUser) {
     this.assertListAccess(u);
     const groups = await this.prisma.workingGroup.findMany({
+      where: { isBoard: false },
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
       include: {
         members: { include: { user: USER_BRIEF } },
@@ -109,11 +113,17 @@ export class WorkingGroupsService {
       goals: g.goals,
       description: g.description,
       status: g.status,
+      isDemo: g.isDemo,
+      isBoard: g.isBoard,
+      chatVk: g.chatVk,
+      chatTelegram: g.chatTelegram,
+      chatMax: g.chatMax,
+      leaderNames: g.leaderNames,
       createdAt: g.createdAt,
       myRole: c.role,
       canManage: c.canManage,
       fullAccess: c.fullAccess,
-      canJoin: !c.role && g.status === WorkingGroupStatus.ACTIVE && u.permissions.has(P.WG_PARTICIPATE),
+      canJoin: !g.isBoard && !c.role && g.status === WorkingGroupStatus.ACTIVE && u.permissions.has(P.WG_PARTICIPATE),
       members: g.members.map((m) => ({
         userId: m.userId,
         fullName: m.user.fullName,
@@ -138,6 +148,10 @@ export class WorkingGroupsService {
         name: dto.name,
         goals: dto.goals ?? null,
         description: dto.description ?? null,
+        chatVk: dto.chatVk ?? null,
+        chatTelegram: dto.chatTelegram ?? null,
+        chatMax: dto.chatMax ?? null,
+        leaderNames: dto.leaderNames ?? null,
         members: dto.leadUserId ? { create: { userId: dto.leadUserId, role: WgRole.LEAD } } : undefined,
       },
     });
@@ -152,7 +166,7 @@ export class WorkingGroupsService {
     const before = await this.prisma.workingGroup.findUniqueOrThrow({ where: { id } });
     const g = await this.prisma.workingGroup.update({
       where: { id },
-      data: { name: dto.name, goals: dto.goals, description: dto.description, status: dto.status },
+      data: { name: dto.name, goals: dto.goals, description: dto.description, status: dto.status, chatVk: dto.chatVk, chatTelegram: dto.chatTelegram, chatMax: dto.chatMax, leaderNames: dto.leaderNames },
     });
     await this.audit.log({
       actorUserId: u.id,
@@ -231,7 +245,7 @@ export class WorkingGroupsService {
 
   async join(id: string, u: AuthUser, meta: RequestMeta) {
     const c = await this.ctx(id, u);
-    if (!u.permissions.has(P.WG_PARTICIPATE)) throw new ForbiddenException('Недостаточно прав');
+    if (!u.permissions.has(P.WG_PARTICIPATE) || c.group.isBoard) throw new ForbiddenException('Недостаточно прав');
     if (c.group.status !== WorkingGroupStatus.ACTIVE) throw new BadRequestException('Группа в архиве');
     if (c.role) throw new ConflictException('Вы уже в группе');
     await this.prisma.workingGroupMember.create({ data: { workingGroupId: id, userId: u.id } });

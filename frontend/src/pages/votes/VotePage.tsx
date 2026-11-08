@@ -20,7 +20,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, downloadFile } from '../../api/client';
 import type { VoteDetail } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { notifyError, notifyOk, QueryState } from '../../components/common';
+import { notifyError, notifyOk, QueryState, DemoBadge } from '../../components/common';
 import { fmtDateTime, timeLeft, VOTE_ELIGIBILITY, VOTE_SCENARIO } from '../../labels';
 import { Ballot } from './Ballot';
 import { NamedTable, QuestionResults, QuorumCard } from './Results';
@@ -212,6 +212,7 @@ export function VotePage() {
                 </Text>
                 <Title order={2}>{v.title}</Title>
                 <Group gap="xs" mt={6}>
+                  <DemoBadge show={v.isDemo} />
                   <VoteStatusBadge status={v.status} />
                   {v.status === 'ACTIVE' && (
                     <Badge variant="outline" leftSection={<IconClockHour4 size={12} />}>

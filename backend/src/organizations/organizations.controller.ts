@@ -5,7 +5,7 @@ import { P } from '../access/permissions';
 import { AuthUser, RequestMeta } from '../common/auth-user';
 import { CurrentUser, ReqMeta, RequirePermissions } from '../common/decorators';
 import type { UploadedFileLike } from '../files/files.service';
-import { ChangeStatusDto, CreateOrganizationDto, OrganizationListQuery, UpdateOrganizationDto } from './organizations.dto';
+import { ChangeStatusDto, CreateOrganizationDto, OrganizationListQuery, OrganizationNoteDto, UpdateOrganizationDto } from './organizations.dto';
 import { OrganizationsService } from './organizations.service';
 
 @ApiTags('Организации')
@@ -43,6 +43,17 @@ export class OrganizationsController {
   @ApiOperation({ summary: 'Сменить статус (кандидат → член и т. п.), пишется в историю' })
   changeStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangeStatusDto, @CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta) {
     return this.orgs.changeStatus(id, dto, user, meta);
+  }
+
+  @Get(':id/notes')
+  @ApiOperation({ summary: 'Журнал секретаря и совпадения со списком отказов' })
+  notes(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.orgs.notes(id, user);
+  }
+
+  @Post(':id/notes')
+  addNote(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OrganizationNoteDto, @CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta) {
+    return this.orgs.addNote(id, dto, user, meta);
   }
 
   @Get(':id/status-history')

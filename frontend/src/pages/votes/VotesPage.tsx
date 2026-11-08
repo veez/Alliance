@@ -9,7 +9,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../../api/client';
 import type { Page, VoteListItem } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { PageHeader, QueryState } from '../../components/common';
+import { PageHeader, QueryState, DemoBadge } from '../../components/common';
 import { fmtDateTime, timeLeft, VOTE_SCENARIO, VOTE_STATUS } from '../../labels';
 
 const PAGE_SIZE = 20;
@@ -34,7 +34,8 @@ export function VoteCard({ v }: { v: VoteListItem }) {
             </Text>
             <Anchor component={Link} to={`/votes/${v.id}`} fw={600}>
               {v.title}
-            </Anchor>
+            </Anchor>{' '}
+            <DemoBadge show={v.isDemo} />
           </div>
           <VoteStatusBadge status={v.status} />
         </Group>

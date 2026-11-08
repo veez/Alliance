@@ -1,6 +1,6 @@
 export type SystemRole = 'ADMIN' | 'SECRETARY' | 'USER';
 export type UserStatus = 'INVITED' | 'ACTIVE' | 'BLOCKED';
-export type OrganizationStatus = 'CANDIDATE' | 'MEMBER' | 'PARTNER' | 'SUSPENDED' | 'EXITED';
+export type OrganizationStatus = 'CANDIDATE' | 'MEMBER' | 'PARTNER' | 'SUSPENDED' | 'EXITED' | 'APPLICANT' | 'REJECTED' | 'EXPELLED';
 export type OrganizationKind = 'ORGANIZATION' | 'INDIVIDUAL';
 
 export interface Page<T> {
@@ -18,7 +18,9 @@ export interface Me {
   position: string | null;
   systemRole: SystemRole;
   canViewAll: boolean;
-  organization: { id: string; name: string; shortName: string | null; status: OrganizationStatus; kind: OrganizationKind; regionCode: string } | null;
+  isDemo: boolean;
+  boardGroupId: string | null;
+  organization: { id: string; name: string; shortName: string | null; status: OrganizationStatus; kind: OrganizationKind; regionCode: string | null } | null;
   totpEnabled: boolean;
   mfaRequired: boolean;
   mfaSetupPending: boolean;
@@ -38,8 +40,10 @@ export interface Organization {
   status: OrganizationStatus;
   name: string;
   shortName: string | null;
-  regionCode: string;
-  region?: { code: string; name: string };
+  altName?: string | null;
+  isDemo?: boolean;
+  regionCode: string | null;
+  region?: { code: string; name: string } | null;
   city: string | null;
   activityAreas: string[];
   description: string | null;
@@ -60,6 +64,19 @@ export interface Organization {
   kpp?: string | null;
   legalAddress?: string | null;
   postalAddress?: string | null;
+}
+
+export interface OrganizationNote {
+  id: string;
+  kind: 'COMMENT' | 'BOARD_DECISION';
+  body: string;
+  createdAt: string;
+  author: { id: string; fullName: string } | null;
+}
+
+export interface OrganizationNotes {
+  notes: OrganizationNote[];
+  rejectedMatches: { id: string; name: string; shortName: string | null; status: OrganizationStatus }[];
 }
 
 export interface StatusHistoryEntry {
@@ -84,7 +101,13 @@ export interface Employee {
   position: string | null;
   email: string | null;
   phone: string | null;
-  contactPrivacy?: { hideEmail?: boolean; hidePhone?: boolean; hideFromDirectory?: boolean };
+  vk: string | null;
+  telegram: string | null;
+  allianceTags: string[];
+  isPrimary: boolean;
+  notes: string | null;
+  pdConsentAt: string | null;
+  contactPrivacy?: { hideEmail?: boolean; hidePhone?: boolean; hideMessengers?: boolean; hideFromDirectory?: boolean };
   responsibilities: Array<{ id: string; area: ResponsibilityArea; workingGroup: { id: string; name: string } | null }>;
 }
 
@@ -111,6 +134,7 @@ export type VoteEligibility = 'ALL_MEMBERS' | 'LIST' | 'PAID_DUES';
 export type QuestionFormat = 'YES_NO_ABSTAIN' | 'SINGLE' | 'MULTIPLE' | 'RANKING';
 
 export interface VoteListItem {
+  isDemo?: boolean;
   id: string;
   number: number;
   title: string;
@@ -286,7 +310,11 @@ export type RegistrationStatus = 'INVITED' | 'CONFIRMED_OFFLINE' | 'CONFIRMED_ON
 export type PresenceStatus = 'UNKNOWN' | 'PRESENT_OFFLINE' | 'PRESENT_ONLINE' | 'ABSENT';
 export type ProtocolStatus = 'DRAFT' | 'PUBLISHED';
 
+export type EventAudience = 'ALL_MEMBERS' | 'BOARD' | 'CANDIDATES';
+
 export interface EventBase {
+  isDemo?: boolean;
+  audience: EventAudience;
   id: string;
   title: string;
   description: string | null;
@@ -343,6 +371,7 @@ export interface EventStats {
 }
 
 export interface ProtocolListItem {
+  isDemo?: boolean;
   id: string;
   number: string | null;
   title: string;
@@ -389,6 +418,8 @@ export interface TaskCounters {
 }
 
 export interface WorkingGroupListItem {
+  isDemo?: boolean;
+  leaderNames: string | null;
   id: string;
   name: string;
   goals: string | null;
@@ -413,6 +444,12 @@ export interface WgPlanItem {
 }
 
 export interface WorkingGroupDetail {
+  isDemo?: boolean;
+  isBoard: boolean;
+  chatVk: string | null;
+  chatTelegram: string | null;
+  chatMax: string | null;
+  leaderNames: string | null;
   id: string;
   name: string;
   goals: string | null;

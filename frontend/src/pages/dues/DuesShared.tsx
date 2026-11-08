@@ -226,7 +226,7 @@ export function OrgDuesHistory({ orgId }: { orgId: string }) {
   const qc = useQueryClient();
   const history = useQuery({
     queryKey: ['dues-history', orgId],
-    queryFn: () => api<{ dues: DuesDetail[]; agreements: Agreement[] }>(`/dues/organization/${orgId}`),
+    queryFn: () => api<{ dues: DuesDetail[]; agreements: Agreement[]; agreementsVisible: boolean }>(`/dues/organization/${orgId}`),
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ['dues-history', orgId] });
   return (
@@ -238,10 +238,14 @@ export function OrgDuesHistory({ orgId }: { orgId: string }) {
           ) : (
             <Alert color="gray">Взносы ещё не начислялись.</Alert>
           )}
-          <Title order={4} mt="md">
-            Договоры пожертвования
-          </Title>
-          <AgreementsList agreements={history.data.agreements} onChanged={refresh} />
+          {history.data.agreementsVisible && (
+            <>
+              <Title order={4} mt="md">
+                Договоры пожертвования
+              </Title>
+              <AgreementsList agreements={history.data.agreements} onChanged={refresh} />
+            </>
+          )}
         </Stack>
       )}
     </QueryState>

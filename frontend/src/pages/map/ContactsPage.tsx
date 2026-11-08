@@ -1,3 +1,4 @@
+import { ALLIANCE_TAG } from '../../labels';
 import { Anchor, Badge, Group, Pagination, Select, Stack, Table, Tabs, Text, TextInput } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { IconEyeOff, IconSearch } from '@tabler/icons-react';
@@ -15,7 +16,7 @@ interface OrgContact {
   shortName: string | null;
   kind: OrganizationKind;
   city: string | null;
-  region: { code: string; name: string; district: string };
+  region: { code: string; name: string; district: string } | null;
   website: string | null;
   activityAreas: string[];
   headName: string | null;
@@ -29,13 +30,17 @@ interface PersonContact {
   position: string | null;
   email: string | null;
   phone: string | null;
+  vk: string | null;
+  telegram: string | null;
+  allianceTags: string[];
+  isPrimary: boolean;
   hiddenFromDirectory: boolean;
-  organization: { id: string; name: string; city: string | null; region: { code: string; name: string } };
+  organization: { id: string; name: string; city: string | null; region: { code: string; name: string } | null };
   responsibilities: { area: { code: string; name: string }; workingGroup: { id: string; name: string } | null }[];
 }
 
 const PAGE = 25;
-const Contact = ({ email, phone }: { email: string | null; phone: string | null }) => (
+const Contact = ({ email, phone, vk, telegram }: { email: string | null; phone: string | null; vk?: string | null; telegram?: string | null }) => (
   <Stack gap={0}>
     {phone && (
       <Anchor href={`tel:${phone}`} size="sm">
@@ -47,7 +52,17 @@ const Contact = ({ email, phone }: { email: string | null; phone: string | null 
         {email}
       </Anchor>
     )}
-    {!phone && !email && (
+    {telegram && (
+      <Anchor href={`https://t.me/${telegram.replace(/^@/, '')}`} target="_blank" rel="noopener noreferrer" size="sm">
+        {telegram}
+      </Anchor>
+    )}
+    {vk && (
+      <Anchor href={vk} target="_blank" rel="noopener noreferrer" size="sm">
+        ВКонтакте
+      </Anchor>
+    )}
+    {!phone && !email && !vk && !telegram && (
       <Text size="sm" c="dimmed">
         скрыты
       </Text>
@@ -166,11 +181,16 @@ export function ContactsPage() {
                           {p.organization.name}
                         </Anchor>
                         <Text size="xs" c="dimmed">
-                          {p.organization.city ?? p.organization.region.name}
+                          {p.organization.city ?? p.organization.region?.name}
                         </Text>
                       </Table.Td>
                       <Table.Td>
                         <Group gap={4}>
+                          {p.allianceTags.map((t) => (
+                            <Badge key={t} size="sm" variant="filled" color="grape" style={{ textTransform: 'none' }}>
+                              {ALLIANCE_TAG[t] ?? t}
+                            </Badge>
+                          ))}
                           {p.responsibilities.map((r, i) => (
                             <Badge key={i} size="sm" variant="light" color={r.workingGroup ? 'grape' : 'teal'} style={{ textTransform: 'none' }}>
                               {r.workingGroup ? r.workingGroup.name : r.area.name}
@@ -179,7 +199,7 @@ export function ContactsPage() {
                         </Group>
                       </Table.Td>
                       <Table.Td>
-                        <Contact email={p.email} phone={p.phone} />
+                        <Contact email={p.email} phone={p.phone} vk={p.vk} telegram={p.telegram} />
                       </Table.Td>
                     </Table.Tr>
                   ))}
@@ -217,9 +237,9 @@ export function ContactsPage() {
                         )}
                       </Table.Td>
                       <Table.Td>
-                        <Text size="sm">{o.city ?? o.region.name}</Text>
+                        <Text size="sm">{o.city ?? o.region?.name}</Text>
                         <Text size="xs" c="dimmed">
-                          {o.region.district} ФО
+                          {o.region?.district} ФО
                         </Text>
                       </Table.Td>
                       <Table.Td>

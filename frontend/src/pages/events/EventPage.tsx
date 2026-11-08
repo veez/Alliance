@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, downloadFile } from '../../api/client';
 import type { EventDetail, EventParticipant, PresenceStatus, RegistrationStatus } from '../../api/types';
-import { notifyError, notifyOk, PageHeader, QueryState } from '../../components/common';
+import { notifyError, notifyOk, PageHeader, QueryState, DemoBadge } from '../../components/common';
 import { EVENT_FORMAT, fmtDateTime, fmtTime, PRESENCE } from '../../labels';
 import { EventFormModal, EventStatusBadge, EventTypeBadge, ProtocolStatusBadge, RegistrationBadge } from './EventShared';
 
@@ -249,7 +249,8 @@ export function EventPage() {
             title={e.title}
             description={
               <Group gap={6} mt={4}>
-                <EventTypeBadge type={e.type} />
+                <EventTypeBadge type={e.type} audience={e.audience} />
+                <DemoBadge show={e.isDemo} />
                 <EventStatusBadge status={e.status} />
                 {e.workingGroup && <Text size="sm">{e.workingGroup.name}</Text>}
               </Group>

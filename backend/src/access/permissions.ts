@@ -17,6 +17,9 @@ export const P = {
   ORG_EDIT_OWN: 'org.edit_own',
   EMPLOYEES_MANAGE_OWN: 'employees.manage_own',
 
+  // Рассылки
+  MAILINGS_SEND: 'mailings.send',
+
   // Голосования
   VOTES_CREATE: 'votes.create',
   VOTES_READ_ALL: 'votes.read_all',
@@ -66,6 +69,7 @@ const READ_ALL: Permission[] = [
 
 const SECRETARY: Permission[] = [
   ...READ_ALL,
+  P.MAILINGS_SEND,
   P.VOTES_CREATE,
   P.DUES_MANAGE,
   P.EVENTS_MANAGE,
@@ -91,6 +95,9 @@ const BY_ORG_STATUS: Record<OrganizationStatus, Permission[]> = {
   PARTNER: [P.ORG_EDIT_OWN, P.MAP_READ, P.PARTNER_MATERIALS_READ],
   SUSPENDED: [P.MAP_READ, P.DUES_READ_OWN],
   EXITED: [],
+  APPLICANT: [],
+  REJECTED: [],
+  EXPELLED: [],
 };
 
 export interface PermissionSubject {

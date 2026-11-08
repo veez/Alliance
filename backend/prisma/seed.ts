@@ -48,6 +48,9 @@ async function seedReference() {
   for (const [key, value] of Object.entries(SETTINGS)) {
     await prisma.setting.upsert({ where: { key }, update: {}, create: { key, value: value as never } });
   }
+  if (!(await prisma.workingGroup.findFirst({ where: { isBoard: true } }))) {
+    await prisma.workingGroup.create({ data: { name: 'Правление Альянса', isBoard: true, goals: 'Заседания, планы работы и протоколы правления.' } });
+  }
   console.log(`Справочники: ${REGIONS.length} регионов, ${AREAS.length} областей ответственности`);
 }
 
@@ -84,10 +87,10 @@ const WORKING_GROUPS = [
   { key: 'education', name: 'РГ по обучению специалистов', goals: 'Программа повышения квалификации и супервизии.' },
 ];
 
-async function seedDemo() {
+async function seedDemo(): Promise<boolean> {
   if (await prisma.user.count()) {
     console.log('Пользователи уже есть — демо-данные не добавляются');
-    return;
+    return false;
   }
   const passwordHash = await hashPassword(DEMO_PASSWORD);
   const now = new Date();
@@ -198,6 +201,7 @@ async function seedDemo() {
   console.log(`Вход: admin@alliance.local / ${DEMO_PASSWORD} (при первом входе — настройка 2FA)`);
   console.log(`      secretary@alliance.local / ${DEMO_PASSWORD}, TOTP-секрет ${DEMO_SECRETARY_TOTP}`);
   console.log(`      opora@alliance.local / ${DEMO_PASSWORD} (член Альянса, руководитель РГ)`);
+  return true;
 }
 
 /** Прод: при пустой БД создаёт приглашение первому администратору (ссылка — в лог). */
@@ -220,11 +224,23 @@ async function main() {
     await bootstrapAdmin();
     return;
   }
-  await seedDemo();
+  const created = await seedDemo();
   await seedVotes(prisma);
   await seedDues(prisma);
   await seedEvents(prisma);
   await seedWorkingGroups(prisma);
+  // На демо-стенде всё только что созданное получает пометку «ДЕМО»
+  if (created && process.env.DEMO_DATA === 'true') {
+    const data = { isDemo: true };
+    await prisma.$transaction([
+      prisma.user.updateMany({ data }),
+      prisma.organization.updateMany({ data }),
+      prisma.vote.updateMany({ data }),
+      prisma.event.updateMany({ data }),
+      prisma.protocol.updateMany({ data }),
+      prisma.workingGroup.updateMany({ where: { isBoard: false }, data }),
+    ]);
+  }
 }
 
 main()

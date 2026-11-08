@@ -1,14 +1,16 @@
 import { ActionIcon, Alert, Anchor, Badge, Button, Card, Grid, Group, Menu, Modal, Progress, Select, Stack, Tabs, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { IconDots, IconEdit, IconFilePlus, IconLogout, IconUserPlus } from '@tabler/icons-react';
+import { IconDots, IconEdit, IconFilePlus, IconLogout, IconUserPlus, IconCalendarPlus } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { WorkingGroupDetail } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { notifyError, notifyOk, PageHeader, QueryState } from '../../components/common';
+import { notifyError, notifyOk, PageHeader, QueryState, DemoBadge } from '../../components/common';
 import { EVENT_FORMAT, fmtDateTime, WG_ROLE } from '../../labels';
+import { EventFormModal } from '../events/EventShared';
+import { EventMonth } from '../events/EventsPage';
 import { ProtocolsTab } from '../events/ProtocolsTab';
 import { WgFiles } from './WgFiles';
 import { WgPlan } from './WgPlan';
@@ -17,7 +19,7 @@ import { WgTasks } from './WgTasks';
 function EditGroupModal({ g, onClose }: { g: WorkingGroupDetail; onClose: () => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const form = useForm({ initialValues: { name: g.name, goals: g.goals ?? '', description: g.description ?? '' } });
+  const form = useForm({ initialValues: { name: g.name, goals: g.goals ?? '', description: g.description ?? '', leaderNames: g.leaderNames ?? '', chatVk: g.chatVk ?? '', chatTelegram: g.chatTelegram ?? '', chatMax: g.chatMax ?? '' } });
   const submit = form.onSubmit(async (v) => {
     setBusy(true);
     try {
@@ -39,6 +41,10 @@ function EditGroupModal({ g, onClose }: { g: WorkingGroupDetail; onClose: () => 
           <TextInput label="Название" withAsterisk {...form.getInputProps('name')} />
           <Textarea label="Цели" autosize minRows={2} {...form.getInputProps('goals')} />
           <Textarea label="Описание" autosize minRows={3} {...form.getInputProps('description')} />
+          <TextInput label="Руководители (если нет аккаунта)" {...form.getInputProps('leaderNames')} />
+          <TextInput label="Чат ВКонтакте" {...form.getInputProps('chatVk')} />
+          <TextInput label="Чат Telegram" {...form.getInputProps('chatTelegram')} />
+          <TextInput label="Чат MAX" {...form.getInputProps('chatMax')} />
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
               Отмена
@@ -125,6 +131,23 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
               <Text size="sm" c="dimmed" mt="sm" style={{ whiteSpace: 'pre-line' }}>
                 {g.description}
               </Text>
+            )}
+            {g.leaderNames && (
+              <Text size="sm" mt="sm">
+                Руководители: {g.leaderNames}
+              </Text>
+            )}
+            {(g.chatVk || g.chatTelegram || g.chatMax) && (
+              <Group gap="md" mt="sm">
+                {([['Чат ВКонтакте', g.chatVk], ['Чат Telegram', g.chatTelegram], ['Чат MAX', g.chatMax]] as const).map(
+                  ([label, url]) =>
+                    url && (
+                      <Anchor key={label} href={url} target="_blank" rel="noopener noreferrer" size="sm">
+                        {label}
+                      </Anchor>
+                    ),
+                )}
+              </Group>
             )}
           </Card>
           <Card withBorder padding="lg">
@@ -261,6 +284,7 @@ export function WorkingGroupPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') ?? 'overview';
   const [editing, setEditing] = useState(false);
+  const [planningMeeting, setPlanningMeeting] = useState(false);
   const q = useQuery({ queryKey: ['working-group', id], queryFn: () => api<WorkingGroupDetail>(`/working-groups/${id}`) });
   const g = q.data;
 
@@ -296,13 +320,16 @@ export function WorkingGroupPage() {
     <QueryState isLoading={q.isLoading} error={q.error}>
       {g && (
         <>
-          <Anchor component={Link} to="/working-groups" size="sm">
-            ← Все рабочие группы
-          </Anchor>
+          {!g.isBoard && (
+            <Anchor component={Link} to="/working-groups" size="sm">
+              ← Все рабочие группы
+            </Anchor>
+          )}
           <PageHeader
             title={g.name}
             description={
               <Group gap={6} mt={4}>
+                <DemoBadge show={g.isDemo} />
                 {g.myRole && (
                   <Badge variant="light" color={g.myRole === 'LEAD' ? 'grape' : 'teal'}>
                     {g.myRole === 'LEAD' ? 'Вы руководитель' : 'Вы участник'}
@@ -313,6 +340,11 @@ export function WorkingGroupPage() {
             }
             actions={
               <>
+                {g.isBoard && can('events.manage') && (
+                  <Button leftSection={<IconCalendarPlus size={16} />} onClick={() => setPlanningMeeting(true)}>
+                    Новое заседание
+                  </Button>
+                )}
                 {g.canJoin && <Button onClick={join}>Вступить в группу</Button>}
                 {g.canManage && (
                   <Button variant="light" leftSection={<IconEdit size={16} />} onClick={() => setEditing(true)}>
@@ -351,6 +383,7 @@ export function WorkingGroupPage() {
           <Tabs value={tab} onChange={(v) => setParams({ tab: v ?? 'overview' })} keepMounted={false}>
             <Tabs.List mb="md">
               <Tabs.Tab value="overview">Обзор</Tabs.Tab>
+              {g.isBoard && <Tabs.Tab value="calendar">Календарь</Tabs.Tab>}
               <Tabs.Tab value="plan">План работы</Tabs.Tab>
               {g.fullAccess && (
                 <Tabs.Tab value="tasks" rightSection={g.tasks.open ? <Badge size="xs" variant="light">{g.tasks.open}</Badge> : null}>
@@ -362,6 +395,9 @@ export function WorkingGroupPage() {
             </Tabs.List>
             <Tabs.Panel value="overview">
               <Overview g={g} />
+            </Tabs.Panel>
+            <Tabs.Panel value="calendar">
+              <EventMonth workingGroupId={g.id} />
             </Tabs.Panel>
             <Tabs.Panel value="plan">
               <WgPlan g={g} />
@@ -386,6 +422,7 @@ export function WorkingGroupPage() {
             </Tabs.Panel>
           </Tabs>
           {editing && <EditGroupModal g={g} onClose={() => setEditing(false)} />}
+          {planningMeeting && <EventFormModal opened presetGroupId={g.id} onClose={() => setPlanningMeeting(false)} />}
         </>
       )}
     </QueryState>

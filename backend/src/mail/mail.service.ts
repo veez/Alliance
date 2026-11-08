@@ -60,6 +60,11 @@ export const DEFAULT_TEMPLATES: Record<string, { name: string; subject: string; 
     subject: 'Отменено: {{title}}',
     bodyHtml: '<p>Здравствуйте, {{fullName}}!</p><p>Мероприятие <b>«{{title}}»</b>, назначенное на {{when}} (МСК), отменено.</p><p><a href="{{link}}">Подробности</a></p>',
   },
+  MAILING: {
+    name: 'Рассылка',
+    subject: '{{title}}',
+    bodyHtml: '<p>Здравствуйте, {{fullName}}!</p><div style="white-space: pre-line">{{body}}</div><p><a href="{{link}}">Перейти в портал Альянса</a></p>',
+  },
   VOTE_CLOSED: {
     name: 'Итоги голосования',
     subject: 'Итоги голосования: {{title}}',

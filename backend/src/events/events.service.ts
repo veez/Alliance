@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EventFormat, EventStatus, EventType, OrganizationStatus, PresenceStatus, Prisma, ProtocolStatus, RegistrationStatus, UserStatus, VoteStatus } from '@prisma/client';
+import { EventFormat, EventStatus, EventType, OrganizationStatus, PresenceStatus, Prisma, ProtocolStatus, RegistrationStatus, UserStatus, VoteStatus, EventAudience } from '@prisma/client';
 import { P } from '../access/permissions';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser, RequestMeta } from '../common/auth-user';
@@ -43,8 +43,12 @@ export class EventsService {
 
   /** Члены Альянса видят все мероприятия, партнёры — открытые для партнёров. */
   private visibilityWhere(u: AuthUser): Prisma.EventWhereInput {
-    if (this.seesAll(u) || u.permissions.has(P.EVENTS_PARTICIPATE)) return {};
-    if (u.permissions.has(P.PARTNER_MATERIALS_READ)) return { visibleToPartners: true };
+    // Заседания правления видны его участникам, секретарю и администратору
+    const board: Prisma.EventWhereInput = this.canManage(u) ? {} : { NOT: { workingGroup: { isBoard: true, members: { none: { userId: u.id } } } } };
+    if (this.seesAll(u)) return board;
+    if (u.permissions.has(P.EVENTS_PARTICIPATE)) return { ...board, audience: { not: EventAudience.CANDIDATES } };
+    if (u.organizationStatus === OrganizationStatus.CANDIDATE) return { audience: EventAudience.CANDIDATES };
+    if (u.permissions.has(P.PARTNER_MATERIALS_READ)) return { visibleToPartners: true, ...board };
     return { id: { in: [] } };
   }
 
@@ -54,8 +58,8 @@ export class EventsService {
     return e;
   }
 
-  /** Приглашённые пользователи: заседание РГ — участники группы; остальное — пользователи организаций-членов. */
-  async audienceUsers(e: { type: EventType; workingGroupId: string | null }) {
+  /** Приглашённые: заседание РГ или правления — участники группы; кандидаты — их представители; остальное — организации-члены. */
+  async audienceUsers(e: { type: EventType; workingGroupId: string | null; isDemo?: boolean; audience?: EventAudience }) {
     if (e.type === EventType.WORKING_GROUP_MEETING && e.workingGroupId) {
       const members = await this.prisma.workingGroupMember.findMany({
         where: { workingGroupId: e.workingGroupId, user: { status: UserStatus.ACTIVE } },
@@ -64,17 +68,21 @@ export class EventsService {
       return members.map((m) => m.user);
     }
     return this.prisma.user.findMany({
-      where: { status: UserStatus.ACTIVE, organization: { status: OrganizationStatus.MEMBER } },
+      where: { status: UserStatus.ACTIVE, organization: { status: this.audienceStatus(e), isDemo: e.isDemo ?? false } },
       select: { id: true, email: true, fullName: true, organizationId: true },
     });
   }
 
-  async audienceOrgIds(e: { type: EventType; workingGroupId: string | null }): Promise<string[]> {
+  private audienceStatus(e: { audience?: EventAudience }) {
+    return e.audience === EventAudience.CANDIDATES ? OrganizationStatus.CANDIDATE : OrganizationStatus.MEMBER;
+  }
+
+  async audienceOrgIds(e: { type: EventType; workingGroupId: string | null; isDemo?: boolean; audience?: EventAudience }): Promise<string[]> {
     if (e.type === EventType.WORKING_GROUP_MEETING && e.workingGroupId) {
       const users = await this.audienceUsers(e);
       return [...new Set(users.map((u) => u.organizationId).filter((x): x is string => !!x))];
     }
-    return (await this.prisma.organization.findMany({ where: { status: OrganizationStatus.MEMBER }, select: { id: true } })).map((o) => o.id);
+    return (await this.prisma.organization.findMany({ where: { status: this.audienceStatus(e), isDemo: e.isDemo ?? false }, select: { id: true } })).map((o) => o.id);
   }
 
   private async canRegister(e: EventRow, u: AuthUser) {
@@ -82,6 +90,7 @@ export class EventsService {
     if (e.type === EventType.WORKING_GROUP_MEETING && e.workingGroupId) {
       return !!(await this.prisma.workingGroupMember.findUnique({ where: { workingGroupId_userId: { workingGroupId: e.workingGroupId, userId: u.id } } }));
     }
+    if (e.audience === EventAudience.CANDIDATES) return u.organizationStatus === OrganizationStatus.CANDIDATE;
     if (u.permissions.has(P.EVENTS_PARTICIPATE)) return true;
     return e.visibleToPartners && u.permissions.has(P.PARTNER_MATERIALS_READ);
   }
@@ -234,11 +243,24 @@ export class EventsService {
       registrationDeadline: date(dto.registrationDeadline),
       workingGroupId: dto.type && dto.type !== EventType.WORKING_GROUP_MEETING ? null : dto.workingGroupId,
       visibleToPartners: dto.visibleToPartners,
+      audience: dto.audience,
     };
   }
 
-  async create(dto: CreateEventDto, u: AuthUser, meta: RequestMeta) {
+  /** Мероприятие для правления всегда привязано к его разделу: так оно закрыто от остальных. */
+  private async withAudience<T extends Partial<CreateEventDto>>(dto: T): Promise<T> {
+    const board = await this.prisma.workingGroup.findFirst({ where: { isBoard: true }, select: { id: true } });
+    if (dto.audience === EventAudience.BOARD) {
+      if (!board) throw new BadRequestException('Раздел правления не создан');
+      return { ...dto, type: EventType.WORKING_GROUP_MEETING, workingGroupId: board.id };
+    }
+    if (board && dto.workingGroupId === board.id) return { ...dto, type: EventType.WORKING_GROUP_MEETING, audience: EventAudience.BOARD };
+    return dto;
+  }
+
+  async create(input: CreateEventDto, u: AuthUser, meta: RequestMeta) {
     if (!this.canManage(u)) throw new ForbiddenException('Недостаточно прав');
+    const dto = await this.withAudience(input);
     await this.validate(dto);
     const e = await this.prisma.event.create({
       data: { ...(this.eventData(dto) as Prisma.EventUncheckedCreateInput), title: dto.title, type: dto.type, format: dto.format, startsAt: new Date(dto.startsAt), createdById: u.id },
@@ -268,8 +290,9 @@ export class EventsService {
     });
   }
 
-  async update(id: string, dto: UpdateEventDto, u: AuthUser, meta: RequestMeta) {
+  async update(id: string, input: UpdateEventDto, u: AuthUser, meta: RequestMeta) {
     if (!this.canManage(u)) throw new ForbiddenException('Недостаточно прав');
+    const dto = await this.withAudience(input);
     const before = await this.loadVisible(id, u);
     if (before.status === EventStatus.CANCELLED) throw new ConflictException('Мероприятие отменено');
     await this.validate(dto, before);
@@ -403,10 +426,10 @@ export class EventsService {
     const from = new Date(Date.UTC(y, 0, 1) - 3 * 3_600_000);
     const to = new Date(Date.UTC(y + 1, 0, 1) - 3 * 3_600_000);
     const [orgs, events, votes] = await Promise.all([
-      this.prisma.organization.findMany({ where: { status: OrganizationStatus.MEMBER }, select: { id: true, name: true, shortName: true } }),
-      this.prisma.event.findMany({ where: { status: EventStatus.HELD, startsAt: { gte: from, lt: to } }, select: { id: true, type: true, workingGroupId: true, title: true, startsAt: true } }),
+      this.prisma.organization.findMany({ where: { status: OrganizationStatus.MEMBER, isDemo: false }, select: { id: true, name: true, shortName: true } }),
+      this.prisma.event.findMany({ where: { status: EventStatus.HELD, isDemo: false, audience: EventAudience.ALL_MEMBERS, startsAt: { gte: from, lt: to } }, select: { id: true, type: true, workingGroupId: true, title: true, startsAt: true } }),
       this.prisma.vote.findMany({
-        where: { status: VoteStatus.CLOSED, closedAt: { gte: from, lt: to } },
+        where: { status: VoteStatus.CLOSED, isDemo: false, closedAt: { gte: from, lt: to } },
         select: { eligibleVoters: { select: { organizationId: true } }, participations: { select: { organizationId: true } } },
       }),
     ]);

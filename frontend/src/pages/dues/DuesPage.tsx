@@ -21,22 +21,26 @@ export function DuesPage() {
     );
   }
 
-  const tab = params.get('tab') ?? 'registry';
+  const manage = can('dues.manage');
+  const requested = params.get('tab') ?? 'registry';
+  const tab = requested === 'agreements' && !manage ? 'registry' : requested;
   return (
     <Stack>
       <PageHeader title="Взносы и договоры" description="Учёт ежегодных членских взносов и договоров пожертвования" />
       <Tabs value={tab} onChange={(v) => setParams({ tab: v ?? 'registry' })} keepMounted={false}>
         <Tabs.List mb="md">
           <Tabs.Tab value="registry">Реестр взносов</Tabs.Tab>
-          <Tabs.Tab value="agreements">Договоры пожертвования</Tabs.Tab>
+          {manage && <Tabs.Tab value="agreements">Договоры пожертвования</Tabs.Tab>}
           {ownOrg && <Tabs.Tab value="mine">Моя организация</Tabs.Tab>}
         </Tabs.List>
         <Tabs.Panel value="registry">
           <DuesRegistry />
         </Tabs.Panel>
-        <Tabs.Panel value="agreements">
-          <AgreementsTab />
-        </Tabs.Panel>
+        {manage && (
+          <Tabs.Panel value="agreements">
+            <AgreementsTab />
+          </Tabs.Panel>
+        )}
         {ownOrg && (
           <Tabs.Panel value="mine">
             <OrgDuesHistory orgId={ownOrg} />

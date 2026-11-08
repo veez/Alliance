@@ -1,4 +1,4 @@
-import { AppShell, Avatar, Badge, Burger, Group, Menu, NavLink, ScrollArea, Text, UnstyledButton } from '@mantine/core';
+import { AppShell, Avatar, Badge, Burger, Group, Menu, NavLink, ScrollArea, Text, UnstyledButton, Alert } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconAddressBook,
@@ -18,8 +18,7 @@ import {
   IconBuilding,
   IconHistory,
   IconSettings,
-  type Icon,
-} from '@tabler/icons-react';
+  type Icon, IconSend, IconShieldCheck } from '@tabler/icons-react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useMe } from '../auth/AuthContext';
 import { ORG_STATUS, SYSTEM_ROLE } from '../labels';
@@ -67,6 +66,12 @@ export function AppLayout() {
       show: can('wg.participate') || can('wg.read_all'),
     },
     {
+      to: `/working-groups/${me.boardGroupId}`,
+      label: 'Правление',
+      icon: IconShieldCheck,
+      show: !!me.boardGroupId,
+    },
+    {
       to: '/dues',
       label: 'Взносы',
       icon: IconCoin,
@@ -81,6 +86,12 @@ export function AppLayout() {
     },
   ];
   const admin: NavItem[] = [
+    {
+      to: '/admin/mailings',
+      label: 'Рассылки',
+      icon: IconSend,
+      show: can('mailings.send'),
+    },
     {
       to: '/admin/users',
       label: 'Пользователи',
@@ -101,7 +112,8 @@ export function AppLayout() {
     },
   ];
 
-  const isActive = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to));
+  const onBoard = !!me.boardGroupId && location.pathname.startsWith(`/working-groups/${me.boardGroupId}`);
+  const isActive = (to: string) => (to === '/' ? location.pathname === '/' : to === '/working-groups' && onBoard ? false : location.pathname.startsWith(to));
   const renderItem = (item: NavItem) =>
     item.show === false ? null : (
       <NavLink
@@ -197,6 +209,11 @@ export function AppLayout() {
       </AppShell.Navbar>
 
       <AppShell.Main>
+        {me.isDemo && (
+          <Alert color="red" variant="filled" mb="md" py="xs">
+            ДЕМО-ВЕРСИЯ: вы вошли под демонстрационной учётной записью. Записи с пометкой «ДЕМО» вымышленные.
+          </Alert>
+        )}
         <Outlet />
       </AppShell.Main>
     </AppShell>

@@ -60,6 +60,16 @@ export function PageHeader({ title, description, actions }: { title: string; des
   );
 }
 
+/** Пометка демонстрационной записи. */
+export function DemoBadge({ show }: { show?: boolean }) {
+  if (!show) return null;
+  return (
+    <Badge color="red" variant="filled" size="sm" style={{ flexShrink: 0 }}>
+      ДЕМО
+    </Badge>
+  );
+}
+
 export function StatusBadge({ status }: { status: OrganizationStatus }) {
   const s = ORG_STATUS[status];
   return (

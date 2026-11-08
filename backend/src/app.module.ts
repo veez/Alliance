@@ -35,6 +35,7 @@ import { WorkingGroupsService } from './working-groups/wg.service';
 import { CommunityController, CommunityService } from './community/community';
 import { NotificationsController } from './notifications/notifications.controller';
 import { AdminSettingsController } from './settings/admin-settings.controller';
+import { MailingsController, MailingsService } from './mailings/mailings';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { AdminSettingsController } from './settings/admin-settings.controller';
     CommunityController,
     NotificationsController,
     AdminSettingsController,
+    MailingsController,
     WorkingGroupsController, // после ReferenceController: /working-groups/brief
   ],
   providers: [
@@ -86,6 +88,7 @@ import { AdminSettingsController } from './settings/admin-settings.controller';
     ProtocolsService,
     WorkingGroupsService,
     CommunityService,
+    MailingsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

@@ -12,6 +12,10 @@ export class WorkingGroupDto {
   @ApiProperty() @Transform(trim) @IsString() @MinLength(3) @MaxLength(200) name: string;
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(5000) goals?: string | null;
   @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(10000) description?: string | null;
+  @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(500) chatVk?: string | null;
+  @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(500) chatTelegram?: string | null;
+  @ApiPropertyOptional() @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(500) chatMax?: string | null;
+  @ApiPropertyOptional({ description: 'Руководители текстом, если у них нет аккаунта' }) @IsOptional() @Transform(emptyToNull) @ValidateIf(notNull) @IsString() @MaxLength(500) leaderNames?: string | null;
   @ApiPropertyOptional({ description: 'Руководитель при создании' }) @IsOptional() @IsUUID() leadUserId?: string;
 }
 

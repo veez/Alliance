@@ -81,7 +81,7 @@ export function OrganizationForm({
     initialValues: toFormValues(initial),
     validate: {
       name: (v) => (v.trim().length >= 2 ? null : 'Укажите название'),
-      regionCode: (v) => (v ? null : 'Выберите регион'),
+      regionCode: (v) => (v || initial?.id ? null : 'Выберите регион'),
       inn: (v) => (!v || /^(\d{10}|\d{12})$/.test(v) ? null : 'ИНН — 10 или 12 цифр'),
       ogrn: (v) => (!v || /^(\d{13}|\d{15})$/.test(v) ? null : 'ОГРН — 13 или 15 цифр'),
       kpp: (v) => (!v || /^\d{9}$/.test(v) ? null : 'КПП — 9 цифр'),

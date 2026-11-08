@@ -7,7 +7,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { AdminUser, Page, WorkingGroupListItem } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { notifyError, notifyOk, PageHeader, QueryState } from '../../components/common';
+import { notifyError, notifyOk, PageHeader, QueryState, DemoBadge } from '../../components/common';
 import { WG_ROLE } from '../../labels';
 
 function CreateGroupModal({ onClose }: { onClose: () => void }) {
@@ -69,6 +69,7 @@ export function WorkingGroupsPage() {
       <Stack gap="xs" h="100%">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Title order={4}>{g.name}</Title>
+          <DemoBadge show={g.isDemo} />
           {g.myRole && (
             <Badge variant="light" color={g.myRole === 'LEAD' ? 'grape' : 'teal'} style={{ flexShrink: 0 }}>
               {g.myRole === 'LEAD' ? 'Вы руководитель' : 'Вы участник'}
@@ -82,7 +83,7 @@ export function WorkingGroupsPage() {
         )}
         <div style={{ flex: 1 }} />
         <Text size="sm">
-          {WG_ROLE.LEAD}: {g.leads.map((l) => l.fullName).join(', ') || 'не назначен'}
+          {WG_ROLE.LEAD}: {g.leads.map((l) => l.fullName).join(', ') || g.leaderNames || 'не назначен'}
         </Text>
         <Group gap="lg">
           <Text size="sm" c="dimmed">

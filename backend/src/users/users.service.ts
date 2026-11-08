@@ -39,6 +39,7 @@ export class UsersService {
 
   async list(q: UserListQuery): Promise<Page<unknown>> {
     const where: Prisma.UserWhereInput = {
+      NOT: { isDemo: true, status: 'BLOCKED' }, // обезличенные демо-учётки
       systemRole: q.systemRole,
       status: q.status,
       organizationId: q.organizationId,

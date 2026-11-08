@@ -46,6 +46,14 @@ export class DuesService {
     if (!this.canReadAll(u) && !own) throw new NotFoundException('Не найдено');
   }
 
+  /**
+   * Договоры пожертвования: все видят только секретарь и администратор.
+   * Организация — только свои, в том числе если у её представителя особые права «видеть всё».
+   */
+  private canSeeAgreementsOf(u: AuthUser, organizationId: string) {
+    return u.permissions.has(P.DUES_MANAGE) || (u.permissions.has(P.DUES_READ_OWN) && this.access.isOwnOrganization(u, organizationId));
+  }
+
   private assertManage(u: AuthUser) {
     if (!u.permissions.has(P.DUES_MANAGE)) throw new ForbiddenException('Недостаточно прав');
   }
@@ -83,7 +91,7 @@ export class DuesService {
       throw new BadRequestException(`Сначала задайте сумму и срок взноса за ${year} год`);
     }
     const orgs = await tx.organization.findMany({
-      where: { status: OrganizationStatus.MEMBER, dues: { none: { year } }, ...(onlyOrganizationId ? { id: onlyOrganizationId } : {}) },
+      where: { status: OrganizationStatus.MEMBER, isDemo: false, dues: { none: { year } }, ...(onlyOrganizationId ? { id: onlyOrganizationId } : {}) },
       select: { id: true },
     });
     if (!orgs.length) return 0;
@@ -145,6 +153,7 @@ export class DuesService {
       year: q.year,
       status: q.status === 'DEBT' ? { in: DEBT_STATUSES } : q.status,
       organization: {
+        isDemo: false,
         regionCode: q.regionCode,
         OR: q.search ? [{ name: { contains: q.search, mode: 'insensitive' } }, { shortName: { contains: q.search, mode: 'insensitive' } }, { inn: { contains: q.search } }] : undefined,
       },
@@ -166,10 +175,10 @@ export class DuesService {
   async summary(year: number, user: AuthUser) {
     if (!this.canReadAll(user)) throw new ForbiddenException('Недостаточно прав');
     const [byStatus, due, paid, members, settings] = await Promise.all([
-      this.prisma.dues.groupBy({ by: ['status'], where: { year }, _count: true }),
-      this.prisma.dues.aggregate({ where: { year, status: { not: DuesStatus.WAIVED } }, _sum: { amountDue: true } }),
-      this.prisma.duesPayment.aggregate({ where: { dues: { year } }, _sum: { amount: true } }),
-      this.prisma.organization.count({ where: { status: OrganizationStatus.MEMBER } }),
+      this.prisma.dues.groupBy({ by: ['status'], where: { year, organization: { isDemo: false } }, _count: true }),
+      this.prisma.dues.aggregate({ where: { year, organization: { isDemo: false }, status: { not: DuesStatus.WAIVED } }, _sum: { amountDue: true } }),
+      this.prisma.duesPayment.aggregate({ where: { dues: { year, organization: { isDemo: false } } }, _sum: { amount: true } }),
+      this.prisma.organization.count({ where: { status: OrganizationStatus.MEMBER, isDemo: false } }),
       this.prisma.duesSettings.findUnique({ where: { year } }),
     ]);
     const counts = Object.fromEntries(Object.values(DuesStatus).map((s) => [s, 0])) as Record<DuesStatus, number>;
@@ -182,7 +191,7 @@ export class DuesService {
       settings,
       counts,
       accrued,
-      notAccrued: Math.max(0, members - (await this.prisma.dues.count({ where: { year, organization: { status: OrganizationStatus.MEMBER } } }))),
+      notAccrued: Math.max(0, members - (await this.prisma.dues.count({ where: { year, organization: { status: OrganizationStatus.MEMBER, isDemo: false } } }))),
       totalDue: rub(dueKop),
       totalPaid: rub(paidKop),
       totalDebt: rub(Math.max(0, dueKop - paidKop)),
@@ -240,10 +249,12 @@ export class DuesService {
       },
     });
     const dues = await Promise.all(rows.map((r) => this.present(r)));
-    const agreements = await this.prisma.donationAgreement.findMany({ where: { organizationId: orgId }, orderBy: [{ year: 'desc' }, { number: 'asc' }] });
+    const agreementsVisible = this.canSeeAgreementsOf(user, orgId);
+    const agreements = agreementsVisible ? await this.prisma.donationAgreement.findMany({ where: { organizationId: orgId }, orderBy: [{ year: 'desc' }, { number: 'asc' }] }) : [];
     const agreementFiles = await this.filesOf(FileEntityType.AGREEMENT, agreements.map((a) => a.id));
     return {
       dues,
+      agreementsVisible,
       agreements: agreements.map((a) => ({
         ...a,
         amount: a.amount === null ? null : Number(a.amount),
@@ -358,10 +369,11 @@ export class DuesService {
   // ───────────── Договоры пожертвования ─────────────
 
   async listAgreements(q: AgreementListQuery, user: AuthUser): Promise<Page<unknown>> {
-    if (!this.canReadAll(user)) throw new ForbiddenException('Недостаточно прав');
+    const manage = user.permissions.has(P.DUES_MANAGE);
+    if (!manage && !(user.permissions.has(P.DUES_READ_OWN) && user.organizationId)) throw new ForbiddenException('Недостаточно прав');
     const where: Prisma.DonationAgreementWhereInput = {
       year: q.year,
-      organizationId: q.organizationId,
+      organizationId: manage ? q.organizationId : user.organizationId!,
       status: q.status,
       OR: q.search
         ? [{ number: { contains: q.search, mode: 'insensitive' } }, { organization: { name: { contains: q.search, mode: 'insensitive' } } }]
@@ -426,7 +438,7 @@ export class DuesService {
 
   async openAgreementDocument(id: string, fileId: string, user: AuthUser) {
     const a = await this.loadAgreement(id);
-    this.assertReadOrg(user, a.organizationId);
+    if (!this.canSeeAgreementsOf(user, a.organizationId)) throw new NotFoundException('Не найдено');
     return this.openLinked(FileEntityType.AGREEMENT, id, fileId);
   }
 
@@ -491,7 +503,7 @@ export class DuesService {
   /** Ручная рассылка должникам года (не чаще раза в день на организацию). */
   async remindDebtors(year: number, actor: AuthUser, meta: RequestMeta) {
     this.assertManage(actor);
-    const debtors = await this.prisma.dues.findMany({ where: { year, status: { in: DEBT_STATUSES } }, select: { id: true } });
+    const debtors = await this.prisma.dues.findMany({ where: { year, organization: { isDemo: false }, status: { in: DEBT_STATUSES } }, select: { id: true } });
     let sent = 0;
     for (const d of debtors) if (await this.sendReminder(d.id, `manual_${mskToday()}`)) sent++;
     await this.audit.log({ actorUserId: actor.id, action: 'dues.reminders_sent', entityType: 'DuesSettings', entityId: String(year), after: { sent, debtors: debtors.length }, meta });
