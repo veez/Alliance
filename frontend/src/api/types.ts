@@ -107,6 +107,7 @@ export interface Employee {
   isPrimary: boolean;
   notes: string | null;
   pdConsentAt: string | null;
+  user?: { id: string; email: string; status: UserStatus } | null;
   contactPrivacy?: { hideEmail?: boolean; hidePhone?: boolean; hideMessengers?: boolean; hideFromDirectory?: boolean };
   responsibilities: Array<{ id: string; area: ResponsibilityArea; workingGroup: { id: string; name: string } | null }>;
 }

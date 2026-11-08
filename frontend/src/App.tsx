@@ -74,7 +74,7 @@ export function App() {
         <Route path="organizations" element={<OrganizationsPage />} />
         <Route path="organizations/:id" element={<OrganizationPage />} />
         <Route path="profile" element={<ProfilePage />} />
-        <Route path="admin/users" element={<RequirePermission permission="users.manage"><UsersPage /></RequirePermission>} />
+        <Route path="admin/users" element={<RequirePermission permission="invitations.send"><UsersPage /></RequirePermission>} />
         <Route path="admin/settings" element={<RequirePermission permission="settings.manage"><SettingsPage /></RequirePermission>} />
         <Route path="admin/mailings" element={<RequirePermission permission="mailings.send"><MailingsPage /></RequirePermission>} />
         <Route path="notifications" element={<NotificationsPage />} />

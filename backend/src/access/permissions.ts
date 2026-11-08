@@ -7,6 +7,7 @@ import { OrganizationStatus, SystemRole } from '@prisma/client';
 export const P = {
   // Администрирование
   USERS_MANAGE: 'users.manage',
+  INVITATIONS_SEND: 'invitations.send', // список пользователей и приглашения с обычной ролью
   ROLES_MANAGE: 'roles.manage',
   SETTINGS_MANAGE: 'settings.manage',
   AUDIT_READ: 'audit.read',
@@ -70,6 +71,7 @@ const READ_ALL: Permission[] = [
 const SECRETARY: Permission[] = [
   ...READ_ALL,
   P.MAILINGS_SEND,
+  P.INVITATIONS_SEND,
   P.VOTES_CREATE,
   P.DUES_MANAGE,
   P.EVENTS_MANAGE,

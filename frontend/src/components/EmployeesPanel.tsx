@@ -9,6 +9,8 @@ import { useResponsibilityAreas, useWorkingGroupsBrief } from '../api/hooks';
 import type { Employee } from '../api/types';
 import { notifyError, notifyOk, QueryState } from './common';
 import { ALLIANCE_TAG } from '../labels';
+import { useAuth } from '../auth/AuthContext';
+import { InviteLink, InviteResult } from './InviteLink';
 
 interface FormValues {
   fullName: string;
@@ -148,6 +150,17 @@ function EmployeeModal({ orgId, employee, onClose }: { orgId: string; employee: 
 export function EmployeesPanel({ orgId, editable }: { orgId: string; editable: boolean }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Employee | null | undefined>(undefined); // undefined — закрыто, null — новый
+  const { can } = useAuth();
+  const canInvite = can('invitations.send');
+  const [invited, setInvited] = useState<{ name: string; result: InviteResult } | null>(null);
+  const invite = useMutation({
+    mutationFn: (e: Employee) => api<InviteResult>(`/organizations/${orgId}/employees/${e.id}/invite`, { method: 'POST' }),
+    onSuccess: (result, e) => {
+      setInvited({ name: e.fullName, result });
+      qc.invalidateQueries({ queryKey: ['employees', orgId] });
+    },
+    onError: notifyError,
+  });
   const list = useQuery({ queryKey: ['employees', orgId], queryFn: () => api<Employee[]>(`/organizations/${orgId}/employees`) });
   const remove = useMutation({
     mutationFn: (id: string) => api(`/organizations/${orgId}/employees/${id}`, { method: 'DELETE' }),
@@ -169,6 +182,9 @@ export function EmployeesPanel({ orgId, editable }: { orgId: string; editable: b
 
   return (
     <Stack>
+      <Modal opened={!!invited} onClose={() => setInvited(null)} title={`Приглашение: ${invited?.name ?? ''}`} size="lg">
+        {invited && <InviteLink result={invited.result} />}
+      </Modal>
       {editable && (
         <Group justify="flex-end">
           <Button leftSection={<IconPlus size={16} />} onClick={() => setEditing(null)}>
@@ -185,6 +201,7 @@ export function EmployeesPanel({ orgId, editable }: { orgId: string; editable: b
                   <Table.Th>Сотрудник</Table.Th>
                   <Table.Th>Контакты</Table.Th>
                   <Table.Th>Области ответственности</Table.Th>
+                  {canInvite && <Table.Th>Доступ к порталу</Table.Th>}
                   {editable && <Table.Th w={80} />}
                 </Table.Tr>
               </Table.Thead>
@@ -239,6 +256,33 @@ export function EmployeesPanel({ orgId, editable }: { orgId: string; editable: b
                         ))}
                       </Group>
                     </Table.Td>
+                    {canInvite && (
+                      <Table.Td>
+                        {e.user && e.user.status !== 'INVITED' ? (
+                          <Badge size="sm" variant="light" color={e.user.status === 'ACTIVE' ? 'teal' : 'gray'}>
+                            {e.user.status === 'ACTIVE' ? 'Есть доступ' : 'Заблокирован'}
+                          </Badge>
+                        ) : (
+                          <Stack gap={4} align="flex-start">
+                            {e.user && (
+                              <Badge size="sm" variant="light" color="yellow">
+                                Приглашён
+                              </Badge>
+                            )}
+                            <Button
+                              size="compact-xs"
+                              variant="light"
+                              disabled={!e.email}
+                              title={e.email ? undefined : 'Сначала укажите почту: она станет логином'}
+                              loading={invite.isPending && invite.variables?.id === e.id}
+                              onClick={() => invite.mutate(e)}
+                            >
+                              {e.user ? 'Новая ссылка' : 'Пригласить'}
+                            </Button>
+                          </Stack>
+                        )}
+                      </Table.Td>
+                    )}
                     {editable && (
                       <Table.Td>
                         <Group gap={4} wrap="nowrap">

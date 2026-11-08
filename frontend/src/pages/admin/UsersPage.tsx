@@ -3,7 +3,6 @@ import {
   Alert,
   Badge,
   Button,
-  CopyButton,
   Drawer,
   Group,
   Menu,
@@ -21,12 +20,13 @@ import {
 import { useForm } from '@mantine/form';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
-import { IconCheck, IconCopy, IconDots, IconLock, IconMailForward, IconSearch, IconShieldCheck, IconShieldOff, IconUserPlus } from '@tabler/icons-react';
+import { IconDots, IconLock, IconMailForward, IconSearch, IconShieldCheck, IconShieldOff, IconUserPlus } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, qs } from '../../api/client';
 import type { AdminUser, Organization, Page, SystemRole } from '../../api/types';
-import { useMe } from '../../auth/AuthContext';
+import { useAuth, useMe } from '../../auth/AuthContext';
+import { InviteLink, InviteResult } from '../../components/InviteLink';
 import { notifyError, notifyOk, PageHeader, QueryState } from '../../components/common';
 import { fmtDateTime, ORG_STATUS, SYSTEM_ROLE, USER_STATUS } from '../../labels';
 
@@ -42,30 +42,11 @@ function useOrgOptions() {
   return (q.data?.items ?? []).map((o) => ({ value: o.id, label: `${o.shortName || o.name} · ${ORG_STATUS[o.status].label}` }));
 }
 
-function InviteLink({ link }: { link: string }) {
-  return (
-    <Alert color="teal" title="Приглашение отправлено">
-      <Stack gap="xs">
-        <Text size="sm">Письмо со ссылкой отправлено на email. Ссылку можно также передать лично (действует 7 дней):</Text>
-        <Group gap="xs" wrap="nowrap">
-          <TextInput value={link} readOnly style={{ flex: 1 }} size="xs" />
-          <CopyButton value={link}>
-            {({ copied, copy }) => (
-              <Button size="xs" onClick={copy} color={copied ? 'teal' : 'brand'} leftSection={copied ? <IconCheck size={14} /> : <IconCopy size={14} />}>
-                {copied ? 'Скопировано' : 'Копировать'}
-              </Button>
-            )}
-          </CopyButton>
-        </Group>
-      </Stack>
-    </Alert>
-  );
-}
-
 function InviteModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const orgOptions = useOrgOptions();
-  const [link, setLink] = useState<string | null>(null);
+  const { can } = useAuth();
+  const [link, setLink] = useState<InviteResult | null>(null);
   const form = useForm({
     initialValues: { email: '', fullName: '', position: '', systemRole: 'USER' as SystemRole, organizationId: null as string | null },
     validate: {
@@ -75,9 +56,9 @@ function InviteModal({ opened, onClose }: { opened: boolean; onClose: () => void
     },
   });
   const invite = useMutation({
-    mutationFn: (v: typeof form.values) => api<{ inviteLink: string }>('/admin/users/invite', { method: 'POST', body: { ...v, organizationId: v.organizationId ?? undefined } }),
+    mutationFn: (v: typeof form.values) => api<InviteResult>('/admin/users/invite', { method: 'POST', body: { ...v, organizationId: v.organizationId ?? undefined } }),
     onSuccess: (res) => {
-      setLink(res.inviteLink);
+      setLink(res);
       qc.invalidateQueries({ queryKey: ['admin-users'] });
     },
     onError: notifyError,
@@ -91,7 +72,7 @@ function InviteModal({ opened, onClose }: { opened: boolean; onClose: () => void
     <Modal opened={opened} onClose={close} title="Пригласить пользователя" size="lg">
       {link ? (
         <Stack>
-          <InviteLink link={link} />
+          <InviteLink result={link} />
           <Group justify="flex-end">
             <Button onClick={close}>Готово</Button>
           </Group>
@@ -103,7 +84,7 @@ function InviteModal({ opened, onClose }: { opened: boolean; onClose: () => void
               <TextInput label="Email" withAsterisk {...form.getInputProps('email')} />
               <TextInput label="ФИО" withAsterisk {...form.getInputProps('fullName')} />
               <TextInput label="Должность" {...form.getInputProps('position')} />
-              <Select label="Системная роль" data={roleOptions} allowDeselect={false} {...form.getInputProps('systemRole')} />
+              {can('roles.manage') && <Select label="Системная роль" data={roleOptions} allowDeselect={false} {...form.getInputProps('systemRole')} />}
             </SimpleGrid>
             <Select
               label="Организация"
@@ -193,7 +174,9 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<AdminUser | null>(null);
-  const [resentLink, setResentLink] = useState<string | null>(null);
+  const [resentLink, setResentLink] = useState<InviteResult | null>(null);
+  const { can } = useAuth();
+  const manage = can('users.manage');
 
   const list = useQuery({
     queryKey: ['admin-users', debounced, role, status, page],
@@ -202,10 +185,10 @@ export function UsersPage() {
   });
   const action = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: Record<string, unknown> }) =>
-      api<{ inviteLink?: string } | undefined>(path, { method: body ? 'PATCH' : 'POST', body }),
+      api<Partial<InviteResult> | undefined>(path, { method: body ? 'PATCH' : 'POST', body }),
     onSuccess: (res, vars) => {
       qc.invalidateQueries({ queryKey: ['admin-users'] });
-      if (res && 'inviteLink' in res && res.inviteLink) setResentLink(res.inviteLink);
+      if (res?.inviteLink) setResentLink({ inviteLink: res.inviteLink, emailSent: !!res.emailSent });
       else notifyOk(vars.path.endsWith('reset-2fa') ? '2FA сброшена, сессии пользователя завершены' : 'Готово');
     },
     onError: notifyError,
@@ -252,7 +235,7 @@ export function UsersPage() {
           miw={160}
         />
       </Group>
-      {resentLink && <InviteLink link={resentLink} />}
+      {resentLink && <InviteLink result={resentLink} />}
       <QueryState isLoading={list.isLoading} error={list.error}>
         <Table.ScrollContainer minWidth={860}>
           <Table verticalSpacing="sm" highlightOnHover>
@@ -315,6 +298,7 @@ export function UsersPage() {
                       <Text size="xs">{fmtDateTime(u.lastLoginAt)}</Text>
                     </Table.Td>
                     <Table.Td>
+                      {(manage || (u.status === 'INVITED' && u.systemRole === 'USER')) && (
                       <Menu position="bottom-end" withinPortal>
                         <Menu.Target>
                           <ActionIcon variant="subtle" aria-label="Действия">
@@ -322,14 +306,14 @@ export function UsersPage() {
                           </ActionIcon>
                         </Menu.Target>
                         <Menu.Dropdown>
-                          <Menu.Item onClick={() => setEditing(u)}>Изменить</Menu.Item>
+                          {manage && <Menu.Item onClick={() => setEditing(u)}>Изменить</Menu.Item>}
                           {u.status === 'INVITED' && (
                             <Menu.Item leftSection={<IconMailForward size={14} />} onClick={() => action.mutate({ path: `/admin/users/${u.id}/resend-invite` })}>
-                              Отправить приглашение повторно
+                              Новая ссылка-приглашение
                             </Menu.Item>
                           )}
-                          {locked && <Menu.Item onClick={() => action.mutate({ path: `/admin/users/${u.id}/unlock` })}>Снять блокировку входа</Menu.Item>}
-                          {u.totpEnabledAt && u.id !== me.id && (
+                          {manage && locked && <Menu.Item onClick={() => action.mutate({ path: `/admin/users/${u.id}/unlock` })}>Снять блокировку входа</Menu.Item>}
+                          {manage && u.totpEnabledAt && u.id !== me.id && (
                             <Menu.Item
                               leftSection={<IconShieldOff size={14} />}
                               onClick={() =>
@@ -341,7 +325,7 @@ export function UsersPage() {
                               Сбросить 2FA
                             </Menu.Item>
                           )}
-                          {u.id !== me.id && u.status === 'ACTIVE' && (
+                          {manage && u.id !== me.id && u.status === 'ACTIVE' && (
                             <Menu.Item
                               color="red"
                               onClick={() =>
@@ -352,11 +336,12 @@ export function UsersPage() {
                               Заблокировать
                             </Menu.Item>
                           )}
-                          {u.status === 'BLOCKED' && (
+                          {manage && u.status === 'BLOCKED' && (
                             <Menu.Item onClick={() => action.mutate({ path: `/admin/users/${u.id}`, body: { status: 'ACTIVE' } })}>Разблокировать</Menu.Item>
                           )}
                         </Menu.Dropdown>
                       </Menu>
+                      )}
                     </Table.Td>
                   </Table.Tr>
                 );

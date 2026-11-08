@@ -5,7 +5,9 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, 
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser, RequestMeta } from '../common/auth-user';
-import { CurrentUser, ReqMeta } from '../common/decorators';
+import { CurrentUser, ReqMeta, RequirePermissions } from '../common/decorators';
+import { P } from '../access/permissions';
+import { UsersService } from '../users/users.service';
 import { ContactPrivacyDto, privacyData } from '../common/privacy';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -132,7 +134,17 @@ export class EmployeesService {
 @ApiBearerAuth()
 @Controller('organizations/:orgId/employees')
 export class EmployeesController {
-  constructor(private readonly employees: EmployeesService) {}
+  constructor(
+    private readonly employees: EmployeesService,
+    private readonly users: UsersService,
+  ) {}
+
+  @Post(':id/invite')
+  @HttpCode(200)
+  @RequirePermissions(P.INVITATIONS_SEND)
+  invite(@Param('orgId', ParseUUIDPipe) orgId: string, @Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta) {
+    return this.users.inviteEmployee(orgId, id, user, meta);
+  }
 
   @Get()
   list(@Param('orgId', ParseUUIDPipe) orgId: string, @CurrentUser() user: AuthUser) {

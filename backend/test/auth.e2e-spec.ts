@@ -67,7 +67,8 @@ describe('Аутентификация и 2FA (e2e)', () => {
   it('секретарь: вход с кодом TOTP; аудит доступен, управление пользователями — нет', async () => {
     const token = await loginSecretary(app);
     await http().get('/api/admin/audit').set(auth(token)).expect(200);
-    await http().get('/api/admin/users').set(auth(token)).expect(403);
+    await http().get('/api/admin/users').set(auth(token)).expect(200); // список нужен для приглашений
+    await http().patch('/api/admin/users/00000000-0000-4000-8000-000000000000').set(auth(token)).send({ status: 'BLOCKED' }).expect(403);
   });
 
   it('секретарь не может отключить 2FA', async () => {

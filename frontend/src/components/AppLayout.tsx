@@ -96,7 +96,7 @@ export function AppLayout() {
       to: '/admin/users',
       label: 'Пользователи',
       icon: IconUsers,
-      show: can('users.manage'),
+      show: can('invitations.send'),
     },
     {
       to: '/admin/settings',

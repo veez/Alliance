@@ -14,22 +14,26 @@ export class AdminUsersController {
   constructor(private readonly users: UsersService) {}
 
   @Get()
+  @RequirePermissions(P.INVITATIONS_SEND)
   list(@Query() q: UserListQuery) {
     return this.users.list(q);
   }
 
   @Get(':id')
+  @RequirePermissions(P.INVITATIONS_SEND)
   get(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.get(id);
   }
 
   @Post('invite')
-  @ApiOperation({ summary: 'Пригласить пользователя (письмо со ссылкой; ссылка также возвращается в ответе)' })
+  @RequirePermissions(P.INVITATIONS_SEND)
+  @ApiOperation({ summary: 'Пригласить пользователя (ссылка возвращается в ответе; письмо — если настроена почта)' })
   invite(@Body() dto: InviteUserDto, @CurrentUser() actor: AuthUser, @ReqMeta() meta: RequestMeta) {
     return this.users.invite(dto, actor, meta);
   }
 
   @Post(':id/resend-invite')
+  @RequirePermissions(P.INVITATIONS_SEND)
   @HttpCode(200)
   resend(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthUser, @ReqMeta() meta: RequestMeta) {
     return this.users.resendInvitation(id, actor, meta);
