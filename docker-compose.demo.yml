@@ -1,6 +1,6 @@
 # Демо-стенд на VPS: портал (API + фронтенд в одном контейнере) + PostgreSQL.
 # Запуск: cp .env.demo.example .env.demo && (заполнить секреты) && docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build
-# Сайт — http://<IP сервера>/ . Для HTTPS нужен домен (см. README).
+# Сайт — https://<DOMAIN>/ (сертификат Caddy выпускает сам). В .env.demo: DOMAIN, APP_URL=https://<DOMAIN>, COOKIE_SECURE=true.
 services:
   db:
     image: postgres:16.6-alpine
@@ -23,8 +23,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - '80:3000'
+    expose:
+      - '3000'
     environment:
       DATABASE_URL: postgresql://alliance:${DB_PASSWORD}@db:5432/alliance
       APP_URL: ${APP_URL:?задайте APP_URL, например http://1.2.3.4}
@@ -36,6 +36,21 @@ services:
     volumes:
       - demo-files:/app/var
 
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN:?задайте DOMAIN, например portal.mental-alliance.ru}
+    volumes:
+      - ./Caddyfile.demo:/etc/caddy/Caddyfile:ro
+      - demo-caddy:/data
+
 volumes:
   demo-db:
   demo-files:
+  demo-caddy:

@@ -1,0 +1,10 @@
+# Демо-стенд: HTTPS с автоматическим сертификатом Let's Encrypt.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy app:3000
+}
+
+# Обращения по IP и любому другому адресу — на основной домен
+http:// {
+	redir https://{$DOMAIN}{uri}
+}
