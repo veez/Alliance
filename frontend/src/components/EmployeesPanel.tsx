@@ -266,7 +266,7 @@ export function EmployeesPanel({ orgId, editable }: { orgId: string; editable: b
                           <Stack gap={4} align="flex-start">
                             {e.user && (
                               <Badge size="sm" variant="light" color="yellow">
-                                Приглашён
+                                Создан
                               </Badge>
                             )}
                             <Button
@@ -277,7 +277,7 @@ export function EmployeesPanel({ orgId, editable }: { orgId: string; editable: b
                               loading={invite.isPending && invite.variables?.id === e.id}
                               onClick={() => invite.mutate(e)}
                             >
-                              {e.user ? 'Новая ссылка' : 'Пригласить'}
+                              {e.user ? 'Ссылка' : 'Пригласить'}
                             </Button>
                           </Stack>
                         )}

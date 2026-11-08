@@ -32,6 +32,14 @@ export class AdminUsersController {
     return this.users.invite(dto, actor, meta);
   }
 
+  @Post(':id/invite-link')
+  @RequirePermissions(P.INVITATIONS_SEND)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Действующая ссылка-приглашение для копирования (письмо не отправляется)' })
+  inviteLink(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthUser, @ReqMeta() meta: RequestMeta) {
+    return this.users.inviteLink(id, actor, meta);
+  }
+
   @Post(':id/resend-invite')
   @RequirePermissions(P.INVITATIONS_SEND)
   @HttpCode(200)

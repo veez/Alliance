@@ -224,7 +224,7 @@ export class AuthService {
   async acceptInvitation(token: string, password: string, meta: RequestMeta): Promise<LoginResult> {
     const { inv, user } = await this.findValidInvitation(token);
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.invitation.update({ where: { id: inv.id }, data: { usedAt: new Date() } });
+      await tx.invitation.update({ where: { id: inv.id }, data: { usedAt: new Date(), tokenEnc: null } });
       const u = await tx.user.update({
         where: { id: user.id },
         data: { passwordHash: await hashPassword(password), status: UserStatus.ACTIVE, failedLogins: 0, lockedUntil: null },

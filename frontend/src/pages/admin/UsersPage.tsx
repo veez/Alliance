@@ -20,7 +20,7 @@ import {
 import { useForm } from '@mantine/form';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
-import { IconDots, IconLock, IconMailForward, IconSearch, IconShieldCheck, IconShieldOff, IconUserPlus } from '@tabler/icons-react';
+import { IconCopy, IconDots, IconLock, IconMailForward, IconSearch, IconShieldCheck, IconShieldOff, IconUserPlus } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, qs } from '../../api/client';
@@ -235,7 +235,9 @@ export function UsersPage() {
           miw={160}
         />
       </Group>
-      {resentLink && <InviteLink result={resentLink} />}
+      <Modal opened={!!resentLink} onClose={() => setResentLink(null)} title="Ссылка-приглашение" size="lg">
+        {resentLink && <InviteLink result={resentLink} />}
+      </Modal>
       <QueryState isLoading={list.isLoading} error={list.error}>
         <Table.ScrollContainer minWidth={860}>
           <Table verticalSpacing="sm" highlightOnHover>
@@ -287,6 +289,11 @@ export function UsersPage() {
                         <Badge color={USER_STATUS[u.status].color} variant="light" size="sm">
                           {USER_STATUS[u.status].label}
                         </Badge>
+                        {u.status === 'INVITED' && (manage || u.systemRole === 'USER') && (
+                          <Button size="compact-xs" variant="light" leftSection={<IconCopy size={12} />} onClick={() => action.mutate({ path: `/admin/users/${u.id}/invite-link` })}>
+                            Ссылка
+                          </Button>
+                        )}
                         {locked && (
                           <Badge color="orange" variant="light" size="sm" leftSection={<IconLock size={10} />}>
                             вход заблокирован
@@ -309,7 +316,7 @@ export function UsersPage() {
                           {manage && <Menu.Item onClick={() => setEditing(u)}>Изменить</Menu.Item>}
                           {u.status === 'INVITED' && (
                             <Menu.Item leftSection={<IconMailForward size={14} />} onClick={() => action.mutate({ path: `/admin/users/${u.id}/resend-invite` })}>
-                              Новая ссылка-приглашение
+                              Заменить ссылку (прежняя перестанет работать)
                             </Menu.Item>
                           )}
                           {manage && locked && <Menu.Item onClick={() => action.mutate({ path: `/admin/users/${u.id}/unlock` })}>Снять блокировку входа</Menu.Item>}

@@ -80,6 +80,8 @@ model Invitation {
   id             String     @id @default(uuid()) @db.Uuid
   email          String
   tokenHash      String     @unique @map("token_hash")
+  /// Зашифрованная ссылка, чтобы её можно было скопировать повторно; очищается после использования
+  tokenEnc       String?    @map("token_enc")
   userId         String     @map("user_id") @db.Uuid
   systemRole     SystemRole @default(USER) @map("system_role")
   organizationId String?    @map("organization_id") @db.Uuid

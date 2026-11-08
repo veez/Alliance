@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma, SystemRole, UserStatus } from '@prisma/client';
 import { P } from '../access/permissions';
 import { AuditService } from '../audit/audit.service';
-import { randomToken, sha256 } from '../auth/crypto';
+import { decryptSecret, encryptSecret, randomToken, sha256 } from '../auth/crypto';
 import { AuthUser, RequestMeta } from '../common/auth-user';
 import { Page, pageArgs } from '../common/pagination';
 import { env } from '../config/env';
@@ -96,6 +96,7 @@ export class UsersService {
         data: {
           email: u.email,
           tokenHash: sha256(token),
+          tokenEnc: encryptSecret(token),
           userId: u.id,
           systemRole: u.systemRole,
           organizationId: u.organizationId,
@@ -118,11 +119,12 @@ export class UsersService {
     const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
     await this.prisma.$transaction(async (tx) => {
       // Старые ссылки перестают действовать
-      await tx.invitation.updateMany({ where: { userId: id, usedAt: null }, data: { expiresAt: new Date() } });
+      await tx.invitation.updateMany({ where: { userId: id, usedAt: null }, data: { expiresAt: new Date(), tokenEnc: null } });
       await tx.invitation.create({
         data: {
           email: user.email,
           tokenHash: sha256(token),
+          tokenEnc: encryptSecret(token),
           userId: id,
           systemRole: user.systemRole,
           organizationId: user.organizationId,
@@ -135,13 +137,39 @@ export class UsersService {
     return { expiresAt, ...(await this.sendInvitation(user.email, user.fullName, token, expiresAt)) };
   }
 
+  /**
+   * Действующая ссылка-приглашение: при повторном запросе та же, чтобы уже отправленная не сломалась.
+   * Новая создаётся, только если ссылки ещё нет или срок истёк. Письмо не отправляется.
+   */
+  async inviteLink(id: string, actor: AuthUser, meta: RequestMeta) {
+    const user = await this.get(id);
+    if (user.status !== UserStatus.INVITED) throw new BadRequestException('Пользователь уже принял приглашение');
+    this.assertCanGrant(user.systemRole, actor);
+    const open = await this.prisma.invitation.findFirst({ where: { userId: id, usedAt: null, expiresAt: { gt: new Date() }, tokenEnc: { not: null } }, orderBy: { createdAt: 'desc' } });
+    let token: string;
+    let expiresAt: Date;
+    if (open) {
+      token = decryptSecret(open.tokenEnc!);
+      expiresAt = open.expiresAt;
+    } else {
+      token = randomToken();
+      expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.invitation.updateMany({ where: { userId: id, usedAt: null }, data: { expiresAt: new Date(), tokenEnc: null } });
+        await tx.invitation.create({ data: { email: user.email, tokenHash: sha256(token), tokenEnc: encryptSecret(token), userId: id, systemRole: user.systemRole, organizationId: user.organizationId, createdById: actor.id, expiresAt } });
+      });
+    }
+    await this.audit.log({ actorUserId: actor.id, action: 'user.invite_link_viewed', entityType: 'User', entityId: id, meta });
+    return { inviteLink: `${env.appUrl}/invite?token=${token}`, emailSent: false, expiresAt };
+  }
+
   /** Приглашение сотрудника организации: создаёт учётку или выдаёт новую ссылку, если он ещё не вошёл. */
   async inviteEmployee(organizationId: string, employeeId: string, actor: AuthUser, meta: RequestMeta) {
     const employee = await this.prisma.employee.findFirst({ where: { id: employeeId, organizationId }, include: { user: { select: { id: true, status: true } } } });
     if (!employee) throw new NotFoundException('Сотрудник не найден');
     if (employee.user) {
       if (employee.user.status !== UserStatus.INVITED) throw new ConflictException('Сотрудник уже принял приглашение');
-      return this.resendInvitation(employee.user.id, actor, meta);
+      return this.inviteLink(employee.user.id, actor, meta);
     }
     if (!employee.email) throw new BadRequestException('Укажите почту сотрудника: она будет логином');
     const email = employee.email.trim().toLowerCase();
@@ -150,7 +178,7 @@ export class UsersService {
       const linked = await this.prisma.employee.findUnique({ where: { userId: existing.id }, select: { id: true } });
       if (existing.organizationId !== organizationId || existing.status !== UserStatus.INVITED || linked) throw new ConflictException('Эта почта уже используется другой учётной записью');
       await this.prisma.employee.update({ where: { id: employeeId }, data: { userId: existing.id } });
-      return this.resendInvitation(existing.id, actor, meta);
+      return this.inviteLink(existing.id, actor, meta);
     }
     const result = await this.invite({ email, fullName: employee.fullName, position: employee.position ?? undefined, phone: employee.phone ?? undefined, organizationId } as InviteUserDto, actor, meta);
     await this.prisma.employee.update({ where: { id: employeeId }, data: { userId: result.user.id } });

@@ -34,7 +34,7 @@ export const SYSTEM_ROLE: Record<SystemRole, string> = {
 
 export const USER_STATUS: Record<UserStatus, { label: string; color: string }> = {
   ACTIVE: { label: 'Активен', color: 'teal' },
-  INVITED: { label: 'Приглашён', color: 'blue' },
+  INVITED: { label: 'Создан', color: 'blue' },
   BLOCKED: { label: 'Заблокирован', color: 'red' },
 };
 

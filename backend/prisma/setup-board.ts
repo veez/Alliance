@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient, SystemRole, UserStatus } from '@prisma/client';
-import { randomToken, sha256 } from '../src/auth/crypto';
+import { encryptSecret, randomToken, sha256 } from '../src/auth/crypto';
 import { header, parseCsv, parsePerson, Person, pick, samePerson } from './import-alliance';
 
 const INVITE_DAYS = 7;
@@ -61,7 +61,7 @@ export async function setupBoard(prisma: PrismaClient, dir: string) {
     if (open) continue; // повторную ссылку выдаёт администратор в разделе «Пользователи»
     const token = randomToken();
     await prisma.invitation.create({
-      data: { email: user.email, tokenHash: sha256(token), userId: user.id, organizationId: employee.organizationId, systemRole: user.systemRole, createdById: admin?.id ?? user.id, expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000) },
+      data: { email: user.email, tokenHash: sha256(token), tokenEnc: encryptSecret(token), userId: user.id, organizationId: employee.organizationId, systemRole: user.systemRole, createdById: admin?.id ?? user.id, expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000) },
     });
     invites.push({ fullName: employee.fullName, link: `${appUrl}/invite?token=${token}` });
   }

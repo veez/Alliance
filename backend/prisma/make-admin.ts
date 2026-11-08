@@ -5,7 +5,7 @@
  * Запуск: npx ts-node --transpile-only prisma/make-admin.ts <email> "<ФИО>" "<часть названия организации>"
  */
 import { PrismaClient, SystemRole, UserStatus } from '@prisma/client';
-import { randomToken, sha256 } from '../src/auth/crypto';
+import { encryptSecret, randomToken, sha256 } from '../src/auth/crypto';
 
 const INVITE_DAYS = 7;
 
@@ -32,7 +32,7 @@ export async function makeAdmin(prisma: PrismaClient, args: { email: string; ful
   await prisma.invitation.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
   const token = randomToken();
   await prisma.invitation.create({
-    data: { email, tokenHash: sha256(token), userId: user.id, organizationId, systemRole: SystemRole.ADMIN, createdById: user.id, expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000) },
+    data: { email, tokenHash: sha256(token), tokenEnc: encryptSecret(token), userId: user.id, organizationId, systemRole: SystemRole.ADMIN, createdById: user.id, expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000) },
   });
   const appUrl = process.env.APP_URL ?? 'http://localhost:5173';
   return { organization: orgs[0]!.name, inviteLink: `${appUrl}/invite?token=${token}`, linkedEmployee: !!employee };
