@@ -34,6 +34,12 @@ services:
       # С реальными данными оба флага выключены; true — только для стенда без реальных данных
       DEMO_DATA: ${DEMO_DATA:-false}
       DISABLE_2FA: ${DISABLE_2FA:-false}
+      # Отправка почты; без SMTP_HOST письма не уходят, уведомления остаются в портале
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: '${SMTP_FROM:-Альянс «Ценность каждого» <noreply@mental-alliance.ru>}'
     volumes:
       - demo-files:/app/var
 
