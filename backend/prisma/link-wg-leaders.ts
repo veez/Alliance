@@ -1,6 +1,6 @@
 /**
  * Превращает руководителей рабочих групп, записанных текстом, в руководителей из числа сотрудников
- * организаций-членов. Несколько руководителей разделены знаком «+» или «;». Кого не удалось
+ * организаций-членов и партнёров. Несколько руководителей разделены знаком «+» или «;». Кого не удалось
  * однозначно найти, остаётся текстом.
  *
  * Проверка без записи: npx ts-node --transpile-only prisma/link-wg-leaders.ts
@@ -19,7 +19,7 @@ function sameName(a: string, b: string): boolean {
 export async function linkWgLeaders(prisma: PrismaClient, apply: boolean) {
   const groups = await prisma.workingGroup.findMany({ where: { isDemo: false, isBoard: false, leaderNames: { not: null } }, orderBy: { name: 'asc' } });
   const employees = await prisma.employee.findMany({
-    where: { organization: { status: OrganizationStatus.MEMBER, isDemo: false } },
+    where: { organization: { status: { in: [OrganizationStatus.MEMBER, OrganizationStatus.PARTNER] }, isDemo: false } },
     select: { id: true, fullName: true, userId: true, user: { select: { status: true } } },
   });
   const linked: string[] = [];
@@ -32,7 +32,7 @@ export async function linkWgLeaders(prisma: PrismaClient, apply: boolean) {
       const found = employees.filter((e) => sameName(e.fullName, name));
       if (found.length !== 1 || found[0]!.user?.status === UserStatus.BLOCKED) {
         left.push(segment);
-        unmatched.push(`${name} (${g.name}): ${found.length > 1 ? 'найдено несколько' : 'нет среди сотрудников организаций-членов'}`);
+        unmatched.push(`${name} (${g.name}): ${found.length > 1 ? 'найдено несколько' : 'нет среди сотрудников членов и партнёров'}`);
         continue;
       }
       const e = found[0]!;

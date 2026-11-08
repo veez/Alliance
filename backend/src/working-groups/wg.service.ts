@@ -10,6 +10,7 @@ import { syncEmployeeMembers } from './wg-employees';
 import { countTasks, isTaskOverdue, planProgress, taskEditScope } from './wg-logic';
 import { CommentDto, CommentQuery, MemberDto, PlanItemDto, TaskDto, TaskListQuery, UpdatePlanItemDto, UpdateTaskDto, UpdateWorkingGroupDto, WorkingGroupDto } from './wg.dto';
 
+const WG_ORG_STATUSES: OrganizationStatus[] = [OrganizationStatus.MEMBER, OrganizationStatus.PARTNER];
 const USER_BRIEF = { select: { id: true, fullName: true } } as const;
 const ALLOWED_MIME =
   /^(application\/pdf|image\/(png|jpeg|webp)|application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\.[\w.]+|vnd\.oasis\.opendocument\.[\w.]+|zip)|text\/(plain|csv))$/;
@@ -33,6 +34,11 @@ export class WorkingGroupsService {
 
   // ───────────── Доступ ─────────────
 
+  /** Партнёру видны только группы, в которые его добавили. */
+  private onlyOwnGroups(u: AuthUser) {
+    return u.organizationStatus === OrganizationStatus.PARTNER && !u.permissions.has(P.WG_READ_ALL) && !u.permissions.has(P.WG_MANAGE);
+  }
+
   private assertListAccess(u: AuthUser) {
     if (!u.permissions.has(P.WG_PARTICIPATE) && !u.permissions.has(P.WG_READ_ALL) && !u.permissions.has(P.WG_MANAGE)) throw new ForbiddenException('Недостаточно прав');
   }
@@ -47,7 +53,7 @@ export class WorkingGroupsService {
     const role = m?.role ?? null;
     // Правление закрыто и от «видящих всё»: доступ только у участников, секретаря и администратора
     const staff = u.systemRole === 'ADMIN' || u.systemRole === 'SECRETARY';
-    if (group.isBoard && !role && !staff) throw new NotFoundException('Рабочая группа не найдена');
+    if (!role && ((group.isBoard && !staff) || this.onlyOwnGroups(u))) throw new NotFoundException('Рабочая группа не найдена');
     const canManage = u.permissions.has(P.WG_MANAGE) || role === WgRole.LEAD || (group.isBoard && staff);
     return { group, role, canManage, fullAccess: canManage || !!role || u.permissions.has(P.WG_READ_ALL) };
   }
@@ -76,7 +82,7 @@ export class WorkingGroupsService {
     this.assertListAccess(u);
     await syncEmployeeMembers(this.prisma);
     const groups = await this.prisma.workingGroup.findMany({
-      where: { isBoard: false },
+      where: { isBoard: false, ...(this.onlyOwnGroups(u) ? { members: { some: { userId: u.id } } } : {}) },
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
       include: {
         members: { include: { user: USER_BRIEF } },
@@ -198,11 +204,11 @@ export class WorkingGroupsService {
 
   // ───────────── Участники ─────────────
 
-  /** Добавлять можно пользователей организаций-членов Альянса, в том числе ещё не вошедших. */
+  /** Добавлять можно пользователей организаций-членов и партнёров, в том числе ещё не вошедших. */
   private async assertEligibleUser(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { organization: { select: { status: true } } } });
-    if (!user || user.status === UserStatus.BLOCKED || user.organization?.status !== OrganizationStatus.MEMBER) {
-      throw new BadRequestException('В рабочую группу можно добавить только сотрудника организации — члена Альянса');
+    if (!user || user.status === UserStatus.BLOCKED || !user.organization || !WG_ORG_STATUSES.includes(user.organization.status)) {
+      throw new BadRequestException('В рабочую группу можно добавить только сотрудника организации — члена или партнёра Альянса');
     }
     return user;
   }
@@ -211,7 +217,7 @@ export class WorkingGroupsService {
   async candidates(id: string, u: AuthUser) {
     const c = await this.ctx(id, u);
     this.requireManage(c);
-    const org = { status: OrganizationStatus.MEMBER, isDemo: false };
+    const org = { status: { in: WG_ORG_STATUSES }, isDemo: false };
     const [users, employees] = await Promise.all([
       this.prisma.user.findMany({
         where: { status: { not: UserStatus.BLOCKED }, organization: org, wgMemberships: { none: { workingGroupId: id } } },
@@ -238,7 +244,7 @@ export class WorkingGroupsService {
     try {
       if (dto.employeeId) {
         const employee = await this.prisma.employee.findUnique({ where: { id: dto.employeeId }, include: { organization: { select: { status: true } } } });
-        if (!employee || employee.organization.status !== OrganizationStatus.MEMBER) throw new BadRequestException('В рабочую группу можно добавить только сотрудника организации — члена Альянса');
+        if (!employee || !WG_ORG_STATUSES.includes(employee.organization.status)) throw new BadRequestException('В рабочую группу можно добавить только сотрудника организации — члена или партнёра Альянса');
         if (!employee.userId) {
           await this.prisma.workingGroupEmployee.create({ data: { workingGroupId: id, employeeId: employee.id, role } });
           await this.audit.log({ actorUserId: u.id, action: 'wg.member_added', entityType: 'WorkingGroup', entityId: id, after: { employeeId: employee.id, role }, meta });

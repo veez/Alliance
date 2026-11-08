@@ -61,7 +61,7 @@ export class ProtocolsService {
     const published: Prisma.ProtocolWhereInput = u.permissions.has(P.PROTOCOLS_READ)
       ? { status: ProtocolStatus.PUBLISHED }
       : u.permissions.has(P.PARTNER_MATERIALS_READ)
-        ? { status: ProtocolStatus.PUBLISHED, visibleToPartners: true }
+        ? { status: ProtocolStatus.PUBLISHED, OR: [{ visibleToPartners: true }, { workingGroup: { members: { some: { userId: u.id } } } }] }
         : { id: { in: [] } };
     // Протоколы правления видны только его участникам
     const closed = { isBoard: true, members: { none: { userId: u.id } } };

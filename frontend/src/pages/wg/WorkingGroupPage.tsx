@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { WorkingGroupDetail } from '../../api/types';
+import type { WgRole, WorkingGroupDetail } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { notifyError, notifyOk, PageHeader, QueryState, DemoBadge } from '../../components/common';
 import { EVENT_FORMAT, fmtDateTime, WG_ROLE } from '../../labels';
@@ -87,7 +87,7 @@ function AddMemberModal({ g, onClose }: { g: WorkingGroupDetail; onClose: () => 
     <Modal opened onClose={onClose} title="Добавить участника">
       <Stack>
         <Select
-          label="Сотрудник организации — члена Альянса"
+          label="Сотрудник организации — члена или партнёра Альянса"
           description="Можно выбрать и тех, у кого ещё нет доступа к порталу. Назначить руководителем можно после добавления."
           searchable
           data={(cands.data ?? []).map((c) => ({ value: `${c.kind}:${c.id}`, label: `${c.fullName}${c.organization ? ` · ${c.organization}` : ''}${note(c.account)}` }))}
@@ -113,6 +113,14 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['working-group', g.id] }), qc.invalidateQueries({ queryKey: ['working-groups'] })]);
+  // Единый список: руководители всегда сверху, в том числе записанные только текстом
+  type Row = { key: string; id: string; path: 'members' | 'employee-members' | null; fullName: string; organization: { id: string; name: string } | null; role: WgRole; note: string | null };
+  const textLeaders = (g.leaderNames ?? '').split(/\s*[+;]\s*/).filter(Boolean);
+  const rows: Row[] = [
+    ...g.members.map((m): Row => ({ key: m.userId, id: m.userId, path: 'members', fullName: m.fullName, organization: m.organization, role: m.role, note: m.account === 'INVITED' ? 'ещё не вошёл' : null })),
+    ...g.employeeMembers.map((m): Row => ({ key: m.employeeId, id: m.employeeId, path: 'employee-members', fullName: m.fullName, organization: m.organization, role: m.role, note: 'нет учётной записи' })),
+    ...textLeaders.map((name): Row => ({ key: name, id: name, path: null, fullName: name, organization: null, role: 'LEAD', note: 'нет в списках сотрудников' })),
+  ].sort((a, b) => Number(b.role === 'LEAD') - Number(a.role === 'LEAD'));
   const memberAction = async (userId: string, action: 'remove' | 'lead' | 'member', path: 'members' | 'employee-members' = 'members') => {
     try {
       if (action === 'remove') await api(`/working-groups/${g.id}/${path}/${userId}`, { method: 'DELETE' });
@@ -138,11 +146,6 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                 {g.description}
               </Text>
             )}
-            {g.leaderNames && (
-              <Text size="sm" mt="sm">
-                Руководители: {g.leaderNames}
-              </Text>
-            )}
             {(g.chatVk || g.chatTelegram || g.chatMax) && (
               <Group gap="md" mt="sm">
                 {([['Чат ВКонтакте', g.chatVk], ['Чат Telegram', g.chatTelegram], ['Чат MAX', g.chatMax]] as const).map(
@@ -158,7 +161,7 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
           </Card>
           <Card withBorder padding="lg">
             <Group justify="space-between" mb="sm">
-              <Title order={5}>Участники ({g.members.length + g.employeeMembers.length})</Title>
+              <Title order={5}>Участники ({rows.length})</Title>
               {g.canManage && g.status === 'ACTIVE' && (
                 <Button size="xs" variant="light" leftSection={<IconUserPlus size={14} />} onClick={() => setAdding(true)}>
                   Добавить
@@ -166,12 +169,12 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
               )}
             </Group>
             <Stack gap={6}>
-              {g.members.map((m) => (
-                <Group key={m.userId} justify="space-between" wrap="nowrap">
+              {rows.map((m) => (
+                <Group key={m.key} justify="space-between" wrap="nowrap">
                   <div style={{ minWidth: 0 }}>
                     <Text size="sm" fw={m.role === 'LEAD' ? 600 : undefined}>
                       {m.fullName}
-                      {m.userId === me?.id && (
+                      {m.id === me?.id && (
                         <Text span c="dimmed">
                           {' '}
                           (вы)
@@ -185,9 +188,9 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                     )}
                   </div>
                   <Group gap={4} wrap="nowrap">
-                    {m.account === 'INVITED' && (
+                    {m.note && (
                       <Badge variant="outline" color="gray" size="sm">
-                        ещё не вошёл
+                        {m.note}
                       </Badge>
                     )}
                     {m.role === 'LEAD' && (
@@ -195,7 +198,7 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                         {WG_ROLE.LEAD}
                       </Badge>
                     )}
-                    {g.canManage && m.userId !== me?.id && (
+                    {g.canManage && m.path && m.id !== me?.id && (
                       <Menu position="bottom-end" withinPortal>
                         <Menu.Target>
                           <ActionIcon variant="subtle" color="gray" title="Действия">
@@ -205,11 +208,11 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                         <Menu.Dropdown>
                           {can('wg.manage') &&
                             (m.role === 'LEAD' ? (
-                              <Menu.Item onClick={() => memberAction(m.userId, 'member')}>Снять роль руководителя</Menu.Item>
+                              <Menu.Item onClick={() => memberAction(m.id, 'member', m.path!)}>Снять роль руководителя</Menu.Item>
                             ) : (
-                              <Menu.Item onClick={() => memberAction(m.userId, 'lead')}>Назначить руководителем</Menu.Item>
+                              <Menu.Item onClick={() => memberAction(m.id, 'lead', m.path!)}>Назначить руководителем</Menu.Item>
                             ))}
-                          <Menu.Item color="red" onClick={() => memberAction(m.userId, 'remove')}>
+                          <Menu.Item color="red" onClick={() => memberAction(m.id, 'remove', m.path!)}>
                             Исключить из группы
                           </Menu.Item>
                         </Menu.Dropdown>
@@ -218,49 +221,7 @@ function Overview({ g }: { g: WorkingGroupDetail }) {
                   </Group>
                 </Group>
               ))}
-              {g.employeeMembers.map((m) => (
-                <Group key={m.employeeId} justify="space-between" wrap="nowrap">
-                  <div style={{ minWidth: 0 }}>
-                    <Text size="sm" fw={m.role === 'LEAD' ? 600 : undefined}>
-                      {m.fullName}
-                    </Text>
-                    <Anchor component={Link} to={`/organizations/${m.organization.id}`} size="xs" c="dimmed">
-                      {m.organization.name}
-                    </Anchor>
-                  </div>
-                  <Group gap={4} wrap="nowrap">
-                    <Badge variant="outline" color="gray" size="sm">
-                      нет учётной записи
-                    </Badge>
-                    {m.role === 'LEAD' && (
-                      <Badge variant="light" color="grape" size="sm">
-                        {WG_ROLE.LEAD}
-                      </Badge>
-                    )}
-                    {g.canManage && (
-                      <Menu position="bottom-end" withinPortal>
-                        <Menu.Target>
-                          <ActionIcon variant="subtle" color="gray" title="Действия">
-                            <IconDots size={16} />
-                          </ActionIcon>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                          {can('wg.manage') &&
-                            (m.role === 'LEAD' ? (
-                              <Menu.Item onClick={() => memberAction(m.employeeId, 'member', 'employee-members')}>Снять роль руководителя</Menu.Item>
-                            ) : (
-                              <Menu.Item onClick={() => memberAction(m.employeeId, 'lead', 'employee-members')}>Назначить руководителем</Menu.Item>
-                            ))}
-                          <Menu.Item color="red" onClick={() => memberAction(m.employeeId, 'remove', 'employee-members')}>
-                            Исключить из группы
-                          </Menu.Item>
-                        </Menu.Dropdown>
-                      </Menu>
-                    )}
-                  </Group>
-                </Group>
-              ))}
-              {!g.members.length && !g.employeeMembers.length && (
+              {!rows.length && (
                 <Text size="sm" c="dimmed">
                   В группе пока нет участников.
                 </Text>

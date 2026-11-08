@@ -49,7 +49,8 @@ export class EventsService {
     if (this.seesAll(u)) return board;
     if (u.permissions.has(P.EVENTS_PARTICIPATE)) return { ...board, audience: { not: EventAudience.CANDIDATES } };
     if (u.organizationStatus === OrganizationStatus.CANDIDATE) return { audience: EventAudience.CANDIDATES };
-    if (u.permissions.has(P.PARTNER_MATERIALS_READ)) return { visibleToPartners: true, ...board };
+    // Партнёр видит открытые для партнёров мероприятия и заседания своих рабочих групп
+    if (u.permissions.has(P.PARTNER_MATERIALS_READ)) return { OR: [{ visibleToPartners: true }, { workingGroup: { members: { some: { userId: u.id } } } }], ...board };
     return { id: { in: [] } };
   }
 
